@@ -1,0 +1,48 @@
+specVersion: 0.0.3
+description: SubscriptionApp
+repository: https://github.com/onigiri-x/subscription-app
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum/contract
+    name: SubscriptionApp
+    network: "{{network}}"
+    source:
+      address: "{{SubscriptionAppAddress}}"
+      abi: SubscriptionApp
+      startBlock: {{SubscriptionAppStartBlock}}
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.5
+      language: wasm/assemblyscript
+      entities:
+        - Transfer
+      abis:
+        - name: SubscriptionApp
+          file: ./abis/SubscriptionApp.json
+        - name: ERC20
+          file: ./abis/ERC20.json
+      eventHandlers:
+        - event: OrderCreated(uint256,address,uint256,uint256,uint256,address)
+          handler: handleOrderCreated
+        - event: OrderAccepted(uint256,address,uint256,uint256)
+          handler: handleOrderAccepted
+        - event: OrderPaidOut(uint256,address,uint256,uint256,uint256,address)
+          handler: handleOrderPaidOut        -
+        - event: OrderPaidOutGasSavingMode(uint256,address,uint256,uint256,uint256,address)
+          handler: handleOrderPaidOutGasSavingMode
+        - event: OrderRenewed(uint256,address,uint256,uint256,bool)
+          handler: handleOrderRenewed
+        - event: OrderCancelled(uint256,address)
+          handler: handleOrderCancelled
+        - event: OrderPaused(uint256,bool,address)
+          handler: handleOrderPaused
+        - event: SuccessfulPay(uint256,address)
+          handler: handleSuccessfulPay
+        - event: PaymentFailure(string,uint256,address)
+          handler: handlePaymentFailure
+        - event: MerchantWithdrawERC20(address,address,uint256)
+          handler: handleMerchantWithdrawERC20
+        - event: OwnerWithdrawERC20(address,uint256)
+          handler: handleOwnerWithdrawERC20
+      file: ./src/SubscriptionApp.mapping.ts

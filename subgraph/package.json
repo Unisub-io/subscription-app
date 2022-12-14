@@ -1,0 +1,23 @@
+{
+  "name": "subscription-app",
+  "version": "0.1.0",
+  "scripts": {
+    "build": "graph build",
+    "codegen": "graph codegen",
+    "prep:goerli": "mustache networks/goerli.json subgraph.template.yaml > subgraph.yaml && yarn codegen",
+    "prep:mainnet": "mustache networks/mainnet.json subgraph.template.mumbai.yaml > subgraph.yaml && yarn codegen",
+    "create": "graph create onigiri-x/subscription-app --node https://api.thegraph.com/deploy/",
+    "create-local": "graph create onigiri-x/subscription-app --node http://127.0.0.1:8020",
+    "deploy:mumbai": "yarn prep:mumbai; graph deploy --ipfs https://api.thegraph.com/ipfs/ --node https://api.thegraph.com/deploy/ onigiri-x/subscription-app",
+    "deploy:matic": "yarn prep:mainnet; graph deploy --ipfs https://api.thegraph.com/ipfs/ --node https://api.thegraph.com/deploy/ onigiri-x/subscription-app",
+    "deploy-local": "graph deploy onigiri-x/subscription-app --ipfs http://localhost:5001 --node http://127.0.0.1:8020"
+  },
+  "devDependencies": {
+    "@graphprotocol/graph-cli": "^0.27.0",
+    "@graphprotocol/graph-ts": "^0.27.0",
+    "mustache": "^4.0.1"
+  },
+  "dependencies": {
+    "graph": "^0.2.0"
+  }
+}

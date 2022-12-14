@@ -1,0 +1,147 @@
+type Order @entity {
+  id: ID!
+  merchant: Merchant!
+  chargePerInterval: BigInt!
+  erc20: ERC20Token!
+  intervalDuration: String!
+  startTime: BigInt!
+  customerOrders: [CustomerOrder!]! @derivedFrom(field:"order")
+  customerOrderPaymentHistory: [CustomerOrderPaymentHistory!]! @derivedFrom(field:"order")
+  customerGasSavingDepositHistory: [CustomerGasSavingDepositHistory!]! @derivedFrom(field:"order")
+  paused: Boolean!
+}
+
+type CustomerOrder @entity {
+  id: ID!
+  order: Order!
+  customer: Customer!
+  merchant: Merchant!
+  approvedPeriodsRemaining: BigInt!
+  firstPaymentMadeTimestamp: BigInt!
+  numberOfIntervalsPaid: BigInt!
+  nextPaymentTimestamp: BigInt!
+  lastOutstandingPaymentFailed: Boolean!
+  terminated: Boolean!
+  amountPaidToDate: BigInt!
+  numberOfPaymentsInHistory: BigInt!
+  customerOrderPaymentHistory: [CustomerOrderPaymentHistory!]! @derivedFrom(field:"customerOrder")
+  customerGasSavingDepositHistory: [CustomerGasSavingDepositHistory!]! @derivedFrom(field:"customerOrder")
+}
+
+type CustomerOrderPaymentHistory @entity {
+  id: ID! # orderId - customer Eth address - index of the payment in array
+  merchant: Merchant!
+  customer: Customer!
+  order: Order!
+  customerOrder: CustomerOrder!
+  timestamp: BigInt!
+  txHash: Bytes!
+  amount: BigInt!
+  description: String!
+  tokenSymbol: String!
+  feePercentage: BigInt!
+  gasSaving: Boolean!
+  customerGasSavingDepositHistory: CustomerGasSavingDepositHistory
+}
+type CustomerGasSavingDepositHistory @entity {
+  id: ID! # orderId - customer Eth address - index of the payment in array
+  merchant: Merchant!
+  customer: Customer!
+  order: Order!
+  customerOrder: CustomerOrder!
+  timestamp: BigInt!
+  txHash: Bytes!
+  merchantAmount: BigInt!
+  feeAmount: BigInt!
+}
+
+type ERC20Token @entity {
+    id: ID!
+    name: String!
+    symbol: String!
+    decimals: BigInt!
+    ownerERC20DepositsBalance: [OwnerERC20DepositsBalance!]! @derivedFrom(field:"erc20")
+    merchantERC20DepositsBalance: [MerchantERC20DepositsBalance!]! @derivedFrom(field:"erc20")
+}
+
+type CustomerERC20ApprovalAndBalance @entity {
+    id: ID! # erc20 token and customer eth address
+    erc20: ERC20Token!
+    customer: Customer!
+    currentAllowance: BigInt
+    currentBalance: BigInt
+}
+
+type Merchant @entity {
+    id: ID!
+    customerOrders: [CustomerOrder!]! @derivedFrom(field:"merchant")
+    customerOrderPaymentHistory: [CustomerOrderPaymentHistory!]! @derivedFrom(field:"merchant")
+    customerGasSavingDepositHistory: [CustomerGasSavingDepositHistory!]! @derivedFrom(field:"merchant")
+    successfulPayments: [SuccessfulPayment!]! @derivedFrom(field:"merchant")
+    failedPayments: [FailedPayment!]! @derivedFrom(field:"merchant")
+
+}
+
+type Customer @entity {
+    id: ID!
+    customerOrders: [CustomerOrder!]! @derivedFrom(field:"customer")
+    customerOrderPaymentHistory: [CustomerOrderPaymentHistory!]! @derivedFrom(field:"customer")
+    customerERC20ApprovalsAndBalances: [CustomerERC20ApprovalAndBalance!]! @derivedFrom(field:"customer")
+}
+
+type SuccessfulPayment @entity {
+    id: ID! # order id - customer address - transaction hash
+    merchant: Merchant!
+    customer: Customer!
+    customerOrder: CustomerOrder!
+    order: Order!
+    txHash: Bytes!
+    timestamp: BigInt!
+    amount: BigInt!
+    description: String!
+    tokenSymbol: String!
+}
+
+type FailedPayment @entity {
+    id: ID! # order id - customer address - transaction hash
+    merchant: Merchant!
+    customer: Customer!
+    customerOrder: CustomerOrder!
+    order: Order!
+    txHash: Bytes!
+    timestamp: BigInt!
+    amount: BigInt!
+    description: String!
+    tokenSymbol: String!
+}
+
+type OwnerERC20DepositsBalance @entity {
+    id: ID! # erc20 token address
+    erc20: ERC20Token!
+    amount: BigInt!
+    ownerWithdrawalHistory: [OwnerWithdrawalHistory!]! @derivedFrom(field:"depositsBalance")
+}
+
+type MerchantERC20DepositsBalance @entity {
+    id: ID! # merchant eth address - erc20 token address
+    merchant: Merchant!
+    erc20: ERC20Token!
+    amount: BigInt!
+    merchantWithdrawalHistory: [MerchantWithdrawalHistory!]! @derivedFrom(field:"depositsBalance")
+}
+
+type OwnerWithdrawalHistory @entity {
+    id: ID! # tx hash
+    depositsBalance: OwnerERC20DepositsBalance!
+    timestamp: BigInt!
+    amount: BigInt!
+}
+
+type MerchantWithdrawalHistory @entity {
+    id: ID! # tx hash
+    depositsBalance: MerchantERC20DepositsBalance!
+    timestamp: BigInt!
+    amount: BigInt!
+}
+
+
