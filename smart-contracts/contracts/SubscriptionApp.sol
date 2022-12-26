@@ -347,7 +347,8 @@ contract SubscriptionApp {
         uint256 chargePerInterval,
         uint256 startTime,
         uint256 intervalDuration,
-        address erc20
+        address erc20,
+        uint256 merchantDefaultNumberOfOrderIntervals
     );
 
     event OrderAccepted(
@@ -394,6 +395,12 @@ contract SubscriptionApp {
         address whoPausedIt
     );
 
+    event OrderSetMerchantDefaultNumberOfOrderIntervals(
+        uint256 orderId,
+        uint256 defaultNumberOfOrderIntervals,
+        address whoSetIt
+    );
+
     event SuccessfulPay(uint256 orderId, address customer);
     event PaymentFailureBytes(bytes someData, uint256 orderId, address customer);
     event PaymentFailure(string revertString, uint256 orderId, address customer);
@@ -422,6 +429,7 @@ contract SubscriptionApp {
         uint256 intervalDuration;
         address erc20;
         bool paused;
+        uint256 merchantDefaultNumberOfOrderIntervals;
         mapping(address => CustomerOrder) customerOrders;
     }
 
@@ -448,7 +456,7 @@ contract SubscriptionApp {
 
     function initialize(uint256 _defaultPlatformFee) public{
         if(!initialized){
-            defaultTotalIntervals = 36;
+            defaultTotalIntervals = 36; // This is the default # of months just to show the merchants at order creation, real default comes directly from merchant now
             defaultPlatformFee = _defaultPlatformFee;
             owner = msg.sender;
             nextOrder = 0;
@@ -493,32 +501,35 @@ contract SubscriptionApp {
     /// @param _chargePerInterval Cost of the order every interval
     /// @param _intervalDuration The duration of the interval - seconds 9, minutes 8, hourly 7, daily 6, weekly 5, bi-weekly 4, monthly 3, quarter-year 2, bi-yearly 1, yearly 0
     /// @param _erc20 Address of the payment token
-    function createNewOrder(uint256 _chargePerInterval, uint256 _intervalDuration, IERC20 _erc20) public {
-         require(_intervalDuration < 10, "Interval duration between 0 and 9");
-         // Supports interface
+    function createNewOrder(uint256 _chargePerInterval, uint256 _intervalDuration, IERC20 _erc20, uint256 _merchantDefaultNumberOfOrderIntervals) public {
+        require(_intervalDuration < 10, "Interval duration between 0 and 9");
+        // Supports interface
         bool worked = false;
         if (address(_erc20).code.length > 0) {
             try _erc20.totalSupply() returns (uint v){
                 if(v > 0) {
-                Order storage order = orders[nextOrder];
-                order.orderId = nextOrder;
-                order.merchant = msg.sender;
-                order.chargePerInterval = _chargePerInterval;
-                order.startTime = _getNow();
-                order.intervalDuration = _intervalDuration;
-                order.erc20 = address(_erc20);
-                order.paused = false;
+                    Order storage order = orders[nextOrder];
+                    order.orderId = nextOrder;
+                    order.merchant = msg.sender;
+                    order.chargePerInterval = _chargePerInterval;
+                    order.startTime = _getNow();
+                    order.intervalDuration = _intervalDuration;
+                    order.erc20 = address(_erc20);
+                    order.paused = false;
+                    require(_merchantDefaultNumberOfOrderIntervals > 0, "Default number of intervals must be above 0");
+                    order.merchantDefaultNumberOfOrderIntervals = _merchantDefaultNumberOfOrderIntervals;
 
-                emit OrderCreated(
-                    nextOrder,
-                    msg.sender,
-                    _chargePerInterval,
-                    order.startTime,
-                    _intervalDuration,
-                    address(_erc20));
+                    emit OrderCreated(
+                        nextOrder,
+                        msg.sender,
+                        _chargePerInterval,
+                        order.startTime,
+                        _intervalDuration,
+                        address(_erc20),
+                        _merchantDefaultNumberOfOrderIntervals);
 
-                nextOrder = nextOrder + 1;
-                worked = true;
+                    nextOrder = nextOrder + 1;
+                    worked = true;
                 } else {
                     worked = false;
                 }
@@ -532,17 +543,18 @@ contract SubscriptionApp {
     }
 
     function getOrder(uint256 _orderId) external view returns
-        (uint256 orderId, address merchant, uint256 chargePerInterval, uint256 startTime, uint256 intervalDuration, address erc20, bool paused){
-            Order storage order = orders[_orderId];
-            return (
-                order.orderId,
-                order.merchant,
-                order.chargePerInterval,
-                order.startTime,
-                order.intervalDuration,
-                order.erc20,
-                order.paused
-            );
+    (uint256 orderId, address merchant, uint256 chargePerInterval, uint256 startTime, uint256 intervalDuration, address erc20, bool paused, uint256 merchantDefaultNumberOfOrderIntervals){
+        Order storage order = orders[_orderId];
+        return (
+        order.orderId,
+        order.merchant,
+        order.chargePerInterval,
+        order.startTime,
+        order.intervalDuration,
+        order.erc20,
+        order.paused,
+        order.merchantDefaultNumberOfOrderIntervals
+        );
     }
 
     function getCustomerOrder(uint256 _orderId, address _customer) external view returns
@@ -570,6 +582,12 @@ contract SubscriptionApp {
                 customerHistoryAmounts[_orderId][_customer][_index],
                 customerHistoryFeePercentages[_orderId][_customer][_index]
             );
+
+    function setMerchantDefaultNumberOfOrderIntervals(uint256 orderId, uint256 _defaultNumberOfOrderIntervals) external{
+        Order storage order = orders[orderId];
+        require(order.merchant == msg.sender || owner == msg.sender, "Only the merchant or owner can call");
+        order.merchantDefaultNumberOfOrderIntervals = _defaultNumberOfOrderIntervals;
+        emit OrderSetMerchantDefaultNumberOfOrderIntervals(orderId, _defaultNumberOfOrderIntervals, msg.sender);
     }
 
     function setOrderPauseState(uint256 orderId, bool isPaused) external{
@@ -589,7 +607,7 @@ contract SubscriptionApp {
 
         // If it is 0 use the default
         if( _approvedPeriods == 0 ){
-            _approvedPeriods = defaultTotalIntervals;
+            _approvedPeriods = order.merchantDefaultNumberOfOrderIntervals;
         }
 
         uint256 calculateFee = (order.chargePerInterval * platformFee(order.merchant)) / (1000);
@@ -807,7 +825,7 @@ contract SubscriptionApp {
         CustomerOrder storage customerOrder = orders[_orderId].customerOrders[msg.sender];
         require(customerOrder.firstPaymentMadeTimestamp > 0, "Not valid customer to renew");
         if( _approvedPeriods == 0 ){
-            _approvedPeriods = defaultTotalIntervals;
+            _approvedPeriods = order.merchantDefaultNumberOfOrderIntervals;
         }
 
         if(customerOrder.terminated){

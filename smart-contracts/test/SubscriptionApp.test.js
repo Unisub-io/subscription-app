@@ -9,16 +9,16 @@ const {
 	constants,
 	balance,
 	time
-  } = require('@openzeppelin/test-helpers');
+} = require('@openzeppelin/test-helpers');
 
-  const {expect} = require('chai');
+const {expect} = require('chai');
 
-  const SubscriptionApp = artifacts.require('SubscriptionAppMock.sol');
-  const WethToken = artifacts.require('WethToken.sol');
-  const GLDToken = artifacts.require('GLDToken.sol');
-  const SubscriptionAppReal = artifacts.require('SubscriptionApp.sol');
+const SubscriptionApp = artifacts.require('SubscriptionAppMock.sol');
+const WethToken = artifacts.require('WethToken.sol');
+const GLDToken = artifacts.require('GLDToken.sol');
+const SubscriptionAppReal = artifacts.require('SubscriptionApp.sol');
 
-  contract('SubscriptionApp', (accounts) => {
+contract('SubscriptionApp', (accounts) => {
 	const [admin, smartContract, merchantUser, customerUser, provider, anotherAccount] = accounts;
 
 	const chargeCustomerPerInterval = 1000000; // 1 million wei of charge
@@ -29,15 +29,15 @@ const {
 	// this means 1 month at a time, uint256 _cycleStartTime, uint256 _cycleIntervalDuration, address _erc20
 
 	beforeEach(async () => {
-	   this.app = await SubscriptionApp.new({from: admin});
-	   await this.app.initialize(50);
+		this.app = await SubscriptionApp.new({from: admin});
+		await this.app.initialize(50);
 
-	   this.weth = await WethToken.new(
-        { from: admin }
-      );
+		this.weth = await WethToken.new(
+			{ from: admin }
+		);
 
-	   // Setup some test tokens
-	   // Get a bit of weth on the payers account
+		// Setup some test tokens
+		// Get a bit of weth on the payers account
 		await this.weth.deposit({from: customerUser, value: 2000000000}); // 2 billion wei of weth
 
 		// Our erc20 is the GOLD token, we can use this to test as well as ETH.
@@ -47,109 +47,133 @@ const {
 	});
 	describe('Basic tests and creating orders', () => {
 		it('successfully call subscriptionApp changeOwner', async () => {
-		  await this.app.changeOwner('0x0000000000000000000000000000000000000000');
+			await this.app.changeOwner('0x0000000000000000000000000000000000000000');
 		});
 
 		it('successfully revert for change owner wrong owner subscriptionApp changeOwner', async () => {
 			await expectRevert(
-					this.app.changeOwner('0x0000000000000000000000000000000000000000', {from: anotherAccount}),
-					"Caller is not the owner"
-				);
+				this.app.changeOwner('0x0000000000000000000000000000000000000000', {from: anotherAccount}),
+				"Caller is not the owner"
+			);
 		});
 
 		it('successfully call subscriptionApp defaultTotalIntervals', async () => {
-		  await this.app.changeDefaultTotalIntervals(24);
+			await this.app.changeDefaultTotalIntervals(24);
 		});
 
 		it('successfully revert for change defaultTotalIntervals wrong owner', async () => {
 			await expectRevert(
-					this.app.changeDefaultTotalIntervals(24, {from: anotherAccount}),
-					"Caller is not the owner"
-				);
+				this.app.changeDefaultTotalIntervals(24, {from: anotherAccount}),
+				"Caller is not the owner"
+			);
 		});
 
 		it('successfully call changePlatformFee to 10%', async () => {
-		  await this.app.changeDefaultPlatformFee(100);
+			await this.app.changeDefaultPlatformFee(100);
 		});
 
 		it('successfully revert for changeDefaultPlatformFee wrong owner', async () => {
 			await expectRevert(
-					this.app.changeDefaultPlatformFee(100, {from: anotherAccount}),
-					"Caller is not the owner"
-				);
+				this.app.changeDefaultPlatformFee(100, {from: anotherAccount}),
+				"Caller is not the owner"
+			);
 		});
 
 		it('successfully call subscriptionApp real constructor', async () => {
 			this.app = await SubscriptionAppReal.new({from: admin});
 			await this.app.initialize(platformFee);
 			// Try to create an order as well
-			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser});
 		});
 
 
 		it('successfully call to create an order by the merchant', async () => {
-		  await this.app.setNowOverride(1);
-		  const {receipt} = await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, {from: merchantUser});
-        	await expectEvent(receipt, 'OrderCreated', {
-          		orderId: (new BN('0')),
-          		merchant: merchantUser,
-          		chargePerInterval: (new BN(chargeCustomerPerInterval)),
+			await this.app.setNowOverride(1);
+			const {receipt} = await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser});
+			await expectEvent(receipt, 'OrderCreated', {
+				orderId: (new BN('0')),
+				merchant: merchantUser,
+				chargePerInterval: (new BN(chargeCustomerPerInterval)),
 				startTime: (new BN(cycleStartTime)),
 				intervalDuration: (new BN(cycleIntervalDuration)),
-				erc20: this.erc20.address
-        	});
+				erc20: this.erc20.address,
+				merchantDefaultNumberOfOrderIntervals: (new BN('36'))
+			});
 
-        	const {orderId, merchant, chargePerInterval, startTime, intervalDuration, erc20, paused} = await this.app.getOrder(0);
+			const {orderId, merchant, chargePerInterval, startTime, intervalDuration, erc20, paused, merchantDefaultNumberOfOrderIntervals} = await this.app.getOrder(0);
 
-        	expect(orderId).to.be.bignumber.equal(new BN('0'));
-        	expect(merchant).to.be.equal(merchantUser);
-        	expect(chargePerInterval).to.be.bignumber.equal(new BN(chargeCustomerPerInterval));
-        	expect(startTime).to.be.bignumber.equal(new BN(cycleStartTime));
-        	expect(intervalDuration).to.be.bignumber.equal(new BN(cycleIntervalDuration));
-        	expect(erc20).to.be.equal(this.erc20.address);
-        	expect(paused).to.be.equal(false);
+			expect(orderId).to.be.bignumber.equal(new BN('0'));
+			expect(merchant).to.be.equal(merchantUser);
+			expect(chargePerInterval).to.be.bignumber.equal(new BN(chargeCustomerPerInterval));
+			expect(startTime).to.be.bignumber.equal(new BN(cycleStartTime));
+			expect(intervalDuration).to.be.bignumber.equal(new BN(cycleIntervalDuration));
+			expect(erc20).to.be.equal(this.erc20.address);
+			expect(paused).to.be.equal(false);
+			expect(merchantDefaultNumberOfOrderIntervals).to.be.bignumber.equal(new BN('36'));
 		});
 
 		it('successfully call to create an order by the merchantUser and pause it', async () => {
-		  await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, {from: merchantUser});
-		  await this.app.setOrderPauseState(0, true, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser});
+			await this.app.setOrderPauseState(0, true, {from: merchantUser});
+		});
+
+		it('successfully call to create an order by the merchantUser and change its default number of intervals', async () => {
+			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser});
+			await this.app.setMerchantDefaultNumberOfOrderIntervals(0, 10, {from: merchantUser});
+
+
+			const {orderId, merchant, chargePerInterval, startTime, intervalDuration, erc20, paused, merchantDefaultNumberOfOrderIntervals} = await this.app.getOrder(0);
+
+			expect(orderId).to.be.bignumber.equal(new BN('0'));
+			expect(merchant).to.be.equal(merchantUser);
+			expect(chargePerInterval).to.be.bignumber.equal(new BN(chargeCustomerPerInterval));
+			expect(startTime).to.be.bignumber.equal(new BN('0'));
+			expect(intervalDuration).to.be.bignumber.equal(new BN(cycleIntervalDuration));
+			expect(erc20).to.be.equal(this.erc20.address);
+			expect(paused).to.be.equal(false);
+			expect(merchantDefaultNumberOfOrderIntervals).to.be.bignumber.equal(new BN('10'));
 		});
 
 		it('successfully call to create an order by the merchantUser and pause it by owner', async () => {
-		  await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, {from: merchantUser});
-		  await this.app.setOrderPauseState(0, true, {from: admin});
+			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser});
+			await this.app.setOrderPauseState(0, true, {from: admin});
 		});
 
 		it('reverts when calling an order by the NOT the merchantUser to pause it', async () => {
-		  await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, {from: merchantUser});
-		   await expectRevert(
+			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser});
+			await expectRevert(
 				this.app.setOrderPauseState(0, true, {from: customerUser}),
-			   "Only the merchant or owner can pause");
+				"Only the merchant or owner can pause");
 		});
 		it('reverts if not a token contract', async () => {
-		   await expectRevert(
-			   this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, merchantUser, {from: merchantUser}),
-			   "ERC20 token not compatible");
+			await expectRevert(
+				this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, merchantUser, 36, {from: merchantUser}),
+				"ERC20 token not compatible");
+		});
+		it('reverts if 0 default periods', async () => {
+			await expectRevert(
+				this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 0, {from: merchantUser}),
+				"Default number of intervals must be above 0");
 		});
 	});
 
 	describe('try to accept offer', () => {
 		beforeEach(async () => {
 			await this.app.setNowOverride(2);
-		  	await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser});
 
-		  	// The customer needs to approve this
+			// The customer needs to approve this
 			await this.erc20.approve(this.app.address, 37 * chargeCustomerPerInterval, {from: customerUser}); // Approve 36 cycles of token transfers + 1st
 		});
 		it('Customer accepts the offer', async () => {
 			await this.app.setNowOverride(3);
 			const {receipt} = await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			await expectEvent(receipt, 'OrderAccepted', {
-          		orderId: (new BN('0')),
-          		customer: customerUser,
+				orderId: (new BN('0')),
+				customer: customerUser,
 				startTime: (new BN(3)),
 				approvedPeriodsRemaining: (new BN(36)),
-        	});
+			});
 			// Most important is make sure that the merchantUser and owner got their share
 			const ownerShare = chargeCustomerPerInterval * (platformFee / 1000);
 			const merchantShare = chargeCustomerPerInterval - ownerShare;
@@ -158,25 +182,25 @@ const {
 			expect(await this.erc20.balanceOf(merchantUser)).to.be.bignumber.equal(new BN(merchantShare));
 
 			const { customer, approvedPeriodsRemaining, firstPaymentMadeTimestamp, numberOfIntervalsPaid, terminated, amountPaidToDate} = await this.app.getCustomerOrder(0, customerUser);
-        	expect(customer).to.be.equal(customerUser);
-        	expect(approvedPeriodsRemaining).to.be.bignumber.equal(new BN(36));
-        	expect(firstPaymentMadeTimestamp).to.be.bignumber.equal(new BN(3));
-        	expect(numberOfIntervalsPaid).to.be.bignumber.equal(new BN(1));
-        	expect(terminated).to.be.equal(false);
-        	expect(amountPaidToDate).to.be.bignumber.equal(new BN(chargeCustomerPerInterval));
+			expect(customer).to.be.equal(customerUser);
+			expect(approvedPeriodsRemaining).to.be.bignumber.equal(new BN(36));
+			expect(firstPaymentMadeTimestamp).to.be.bignumber.equal(new BN(3));
+			expect(numberOfIntervalsPaid).to.be.bignumber.equal(new BN(1));
+			expect(terminated).to.be.equal(false);
+			expect(amountPaidToDate).to.be.bignumber.equal(new BN(chargeCustomerPerInterval));
 
 			const { timestamp, amount, feePercentage } = await this.app.getPaymentHistoryEntry(0, customerUser, 0);
-        	expect(timestamp).to.be.bignumber.equal(new BN(3));
-        	expect(amount).to.be.bignumber.equal(new BN(chargeCustomerPerInterval));
-        	expect(feePercentage).to.be.bignumber.equal(new BN(platformFee));
+			expect(timestamp).to.be.bignumber.equal(new BN(3));
+			expect(amount).to.be.bignumber.equal(new BN(chargeCustomerPerInterval));
+			expect(feePercentage).to.be.bignumber.equal(new BN(platformFee));
 		});
 
 		it('Customer accepts the offer but insufficient allowance', async () => {
 			await this.app.setNowOverride(3);
 			await this.erc20.approve(this.app.address, 0, {from: customerUser}); // 0 approval
 			await expectRevert(
-					this.app.customerAcceptOrder(0, 0, {from: customerUser}),
-					"Insufficient erc20 allowance"
+				this.app.customerAcceptOrder(0, 0, {from: customerUser}),
+				"Insufficient erc20 allowance"
 			);
 		});
 
@@ -184,8 +208,8 @@ const {
 			await this.app.setNowOverride(3);
 			await this.erc20.transfer(admin, 100000000, {from: customerUser}); // Send back all my balance
 			await expectRevert(
-					this.app.customerAcceptOrder(0, 0, {from: customerUser}),
-					"Insufficient balance first month"
+				this.app.customerAcceptOrder(0, 0, {from: customerUser}),
+				"Insufficient balance first month"
 			);
 		});
 
@@ -200,12 +224,12 @@ const {
 			expect(await this.erc20.balanceOf(merchantUser)).to.be.bignumber.equal(new BN(merchantShare));
 
 			const { customer, approvedPeriodsRemaining, firstPaymentMadeTimestamp, numberOfIntervalsPaid, terminated, amountPaidToDate} = await this.app.getCustomerOrder(0, customerUser);
-        	expect(customer).to.be.equal(customerUser);
-        	expect(approvedPeriodsRemaining).to.be.bignumber.equal(new BN(24));
-        	expect(firstPaymentMadeTimestamp).to.be.bignumber.equal(new BN(3));
-        	expect(numberOfIntervalsPaid).to.be.bignumber.equal(new BN(1));
-        	expect(terminated).to.be.equal(false);
-        	expect(amountPaidToDate).to.be.bignumber.equal(new BN(chargeCustomerPerInterval));
+			expect(customer).to.be.equal(customerUser);
+			expect(approvedPeriodsRemaining).to.be.bignumber.equal(new BN(24));
+			expect(firstPaymentMadeTimestamp).to.be.bignumber.equal(new BN(3));
+			expect(numberOfIntervalsPaid).to.be.bignumber.equal(new BN(1));
+			expect(terminated).to.be.equal(false);
+			expect(amountPaidToDate).to.be.bignumber.equal(new BN(chargeCustomerPerInterval));
 		});
 
 		it('Customer accepts the offer and gets first payment charged', async () => {
@@ -223,8 +247,8 @@ const {
 			await this.app.setNowOverride(2678403);
 			const {receipt} = await this.app.batchProcessPayment([0],[customerUser], false, {from:merchantUser});
 			await expectEvent(receipt, 'OrderPaidOut', {
-          		orderId: (new BN('0')),
-          		customer: customerUser,
+				orderId: (new BN('0')),
+				customer: customerUser,
 				amount: new BN(chargeCustomerPerInterval),
 				feeAmount: new BN(chargeCustomerPerInterval * 0.05),
 				timestamp: new BN('2678403'),
@@ -247,8 +271,8 @@ const {
 
 			let {receipt} = await this.app.setMerchantSpecificPlatformFee(merchantUser, 40, true);
 			await expectEvent(receipt, 'SetMerchantSpecificPlatformFee', {
-          		merchant: merchantUser,
-          		customPlatformFee: (new BN('40')),
+				merchant: merchantUser,
+				customPlatformFee: (new BN('40')),
 				activated: true,
 			});
 
@@ -260,8 +284,8 @@ const {
 			await this.app.setNowOverride(2678403);
 			receipt = await this.app.batchProcessPayment([0],[customerUser], false, {from:merchantUser});
 			await expectEvent(receipt, 'OrderPaidOut', {
-          		orderId: (new BN('0')),
-          		customer: customerUser,
+				orderId: (new BN('0')),
+				customer: customerUser,
 				amount: new BN(chargeCustomerPerInterval),
 				feeAmount: new BN(chargeCustomerPerInterval * 0.04), // custom set
 				timestamp: new BN('2678403'),
@@ -284,15 +308,15 @@ const {
 
 			let {receipt} = await this.app.setMerchantSpecificPlatformFee(merchantUser, 40, true);
 			await expectEvent(receipt, 'SetMerchantSpecificPlatformFee', {
-          		merchant: merchantUser,
-          		customPlatformFee: (new BN('40')),
+				merchant: merchantUser,
+				customPlatformFee: (new BN('40')),
 				activated: true,
 			});
 
 			receipt = await this.app.setMerchantSpecificPlatformFee(merchantUser, 0, false);
 			await expectEvent(receipt, 'SetMerchantSpecificPlatformFee', {
-          		merchant: merchantUser,
-          		customPlatformFee: (new BN('0')), // irrelevant
+				merchant: merchantUser,
+				customPlatformFee: (new BN('0')), // irrelevant
 				activated: false ,
 			});
 
@@ -301,8 +325,8 @@ const {
 			await this.app.setNowOverride(2678403);
 			receipt = await this.app.batchProcessPayment([0],[customerUser], false, {from:merchantUser});
 			await expectEvent(receipt, 'OrderPaidOut', {
-          		orderId: (new BN('0')),
-          		customer: customerUser,
+				orderId: (new BN('0')),
+				customer: customerUser,
 				amount: new BN(chargeCustomerPerInterval),
 				feeAmount: new BN(chargeCustomerPerInterval * 0.05), // custom set
 				timestamp: new BN('2678403'),
@@ -388,14 +412,14 @@ const {
 			await this.app.setNowOverride(26784003);
 			let {receipt} = await this.app.customerCancelOrder(0, customerUser, {from:customerUser});
 			await expectEvent(receipt, 'OrderCancelled', {
-          		orderId: (new BN('0')),
-          		customer: customerUser
+				orderId: (new BN('0')),
+				customer: customerUser
 			});
 			receipt = await this.app.batchProcessPayment([0],[customerUser], false, {from:merchantUser});
 			await expectEvent(receipt, 'PaymentFailure', {
-          		revertString: "This payment has been cancelled",
-          		orderId: (new BN('0')),
-          		customer: customerUser
+				revertString: "This payment has been cancelled",
+				orderId: (new BN('0')),
+				customer: customerUser
 			});
 		});
 		it('Cannot cancel order by random account', async () => {
@@ -412,8 +436,8 @@ const {
 			// Two month later will be about 2678400 seconds x 2
 			await this.app.setNowOverride(26784003);
 			await expectRevert(
-					this.app.customerCancelOrder(0, customerUser, {from:anotherAccount}),
-					"Only the customer, merchant, or owner can cancel an order"
+				this.app.customerCancelOrder(0, customerUser, {from:anotherAccount}),
+				"Only the customer, merchant, or owner can cancel an order"
 			);
 		});
 
@@ -434,17 +458,17 @@ const {
 			await this.app.customerCancelOrder(0, customerUser, {from:customerUser});
 			let {receipt} = await this.app.batchProcessPayment([0],[customerUser], false, {from:merchantUser});
 			await expectEvent(receipt, 'PaymentFailure', {
-          		revertString: "This payment has been cancelled",
-          		orderId: (new BN('0')),
-          		customer: customerUser
+				revertString: "This payment has been cancelled",
+				orderId: (new BN('0')),
+				customer: customerUser
 			});
 
 			// 2 month later renew membership
 			await this.app.setNowOverride(53568000);
 			receipt = await this.app.customerRenewOrder(0,0, {from: customerUser});
 			await expectEvent(receipt, 'OrderRenewed', {
-          		orderId: (new BN('0')),
-          		customer: customerUser,
+				orderId: (new BN('0')),
+				customer: customerUser,
 				startTime: (new BN('53568000')),
 				approvedPeriodsRemaining: (new BN(36)),
 				orderRenewedNotExtended: true,
@@ -480,17 +504,17 @@ const {
 			await this.app.customerCancelOrder(0, customerUser, {from:customerUser});
 			const {receipt} = await this.app.batchProcessPayment([0],[customerUser], false, {from:merchantUser});
 			await expectEvent(receipt, 'PaymentFailure', {
-          		revertString: "This payment has been cancelled",
-          		orderId: (new BN('0')),
-          		customer: customerUser
+				revertString: "This payment has been cancelled",
+				orderId: (new BN('0')),
+				customer: customerUser
 			});
 
 			// 2 month later renew membership
 			await this.app.setNowOverride(53568000);
 			await this.erc20.approve(this.app.address, 0, {from: customerUser}); // 0 approval
 			await expectRevert(
-					this.app.customerRenewOrder(0,0, {from: customerUser}),
-					"Insufficient erc20 allowance"
+				this.app.customerRenewOrder(0,0, {from: customerUser}),
+				"Insufficient erc20 allowance"
 			);
 		});
 
@@ -511,17 +535,17 @@ const {
 			await this.app.customerCancelOrder(0, customerUser, {from:customerUser});
 			const {receipt} = await this.app.batchProcessPayment([0],[customerUser], false, {from:merchantUser});
 			await expectEvent(receipt, 'PaymentFailure', {
-          		revertString: "This payment has been cancelled",
-          		orderId: (new BN('0')),
-          		customer: customerUser
+				revertString: "This payment has been cancelled",
+				orderId: (new BN('0')),
+				customer: customerUser
 			});
 
 			// 2 month later renew membership
 			await this.app.setNowOverride(53568000);
 			await this.erc20.transfer(admin, 100000000 - chargeCustomerPerInterval, {from: customerUser}); // Send back all my balance
 			await expectRevert(
-					this.app.customerRenewOrder(0,0, {from: customerUser}),
-					"Insufficient balance"
+				this.app.customerRenewOrder(0,0, {from: customerUser}),
+				"Insufficient balance"
 			);
 		});
 
@@ -549,8 +573,8 @@ const {
 
 			const {receipt} = await this.app.customerRenewOrder(0,36, {from: customerUser});
 			await expectEvent(receipt, 'OrderRenewed', {
-          		orderId: (new BN('0')),
-          		customer: customerUser,
+				orderId: (new BN('0')),
+				customer: customerUser,
 				startTime: (new BN('3')),
 				approvedPeriodsRemaining: (new BN(36)),
 				orderRenewedNotExtended: false,
@@ -591,13 +615,13 @@ const {
 	describe('handle biweekly, weekly, and daily payments', () => {
 		beforeEach(async () => {
 			await this.app.setNowOverride(2);
-		  	// The customer needs to approve this
+			// The customer needs to approve this
 			await this.erc20.approve(this.app.address, 37 * chargeCustomerPerInterval, {from: customerUser}); // Approve 36 cycles of token transfers + 1st
 		});
 
 		it('Sends biweekly', async () => {
 			const biweekly = 4;
-			await this.app.createNewOrder(chargeCustomerPerInterval, biweekly, this.erc20.address, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, biweekly, this.erc20.address, 36, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -624,7 +648,7 @@ const {
 
 		it('Sends weekly', async () => {
 			const weekly = 5;
-			await this.app.createNewOrder(chargeCustomerPerInterval, weekly, this.erc20.address, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, weekly, this.erc20.address, 36, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -651,7 +675,7 @@ const {
 
 		it('Sends daily', async () => {
 			const daily = 6;
-			await this.app.createNewOrder(chargeCustomerPerInterval, daily, this.erc20.address, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, daily, this.erc20.address, 36, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -678,7 +702,7 @@ const {
 
 		it('Sends hourly', async () => {
 			const hourly = 7;
-			await this.app.createNewOrder(chargeCustomerPerInterval, hourly, this.erc20.address, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, hourly, this.erc20.address, 36, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -705,7 +729,7 @@ const {
 
 		it('Sends by minute', async () => {
 			const minute = 8;
-			await this.app.createNewOrder(chargeCustomerPerInterval, minute, this.erc20.address, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, minute, this.erc20.address, 36, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -732,7 +756,7 @@ const {
 
 		it('Sends by second', async () => {
 			const second = 9;
-			await this.app.createNewOrder(chargeCustomerPerInterval, second, this.erc20.address, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, second, this.erc20.address, 36, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -759,7 +783,7 @@ const {
 
 		it('Sends yearly', async () => {
 			const yearly = 0;
-			await this.app.createNewOrder(chargeCustomerPerInterval, yearly, this.erc20.address, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, yearly, this.erc20.address, 36, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -786,7 +810,7 @@ const {
 
 		it('Sends semi-yearly', async () => {
 			const semiyearly = 1;
-			await this.app.createNewOrder(chargeCustomerPerInterval, semiyearly, this.erc20.address, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, semiyearly, this.erc20.address, 36, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -813,7 +837,7 @@ const {
 
 		it('Sends quarter-yearly', async () => {
 			const quarteryearly = 2;
-			await this.app.createNewOrder(chargeCustomerPerInterval, quarteryearly, this.erc20.address, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, quarteryearly, this.erc20.address, 36, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -840,7 +864,7 @@ const {
 
 		it('Call payment but insufficient allowance', async () => {
 			const quarteryearly = 2;
-			await this.app.createNewOrder(chargeCustomerPerInterval, quarteryearly, this.erc20.address, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, quarteryearly, this.erc20.address, 36, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			await this.app.setNowOverride(56246403);
@@ -848,15 +872,15 @@ const {
 			const {receipt} = await this.app.batchProcessPayment([0],[customerUser], false, {from:merchantUser});
 
 			await expectEvent(receipt, 'PaymentFailure', {
-          		revertString: "Insufficient erc20 allowance",
-          		orderId: (new BN('0')),
-          		customer: customerUser
+				revertString: "Insufficient erc20 allowance",
+				orderId: (new BN('0')),
+				customer: customerUser
 			});
 		});
 
 		it('Call payment but insufficient balance', async () => {
 			const quarteryearly = 2;
-			await this.app.createNewOrder(chargeCustomerPerInterval, quarteryearly, this.erc20.address, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, quarteryearly, this.erc20.address, 36, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			await this.app.setNowOverride(56246403);
@@ -865,9 +889,9 @@ const {
 			const {receipt} = await this.app.batchProcessPayment([0],[customerUser], false, {from:merchantUser});
 
 			await expectEvent(receipt, 'PaymentFailure', {
-          		revertString: "Insufficient balance",
-          		orderId: (new BN('0')),
-          		customer: customerUser
+				revertString: "Insufficient balance",
+				orderId: (new BN('0')),
+				customer: customerUser
 			});
 		});
 	});
@@ -881,7 +905,7 @@ const {
 		});
 
 		it('Tests sending many payments', async () => {
-			const howManyPayments = 100; // 170 works -- keep low to run test in reasonable time
+			const howManyPayments = 10; // 170 works -- keep low to run test in reasonable time
 			const smallPayment = 100000;
 			const enoughWeiToMakeTx = howManyPayments * smallPayment * 10000;// could be reduced (todo)
 			this.erc20 = await GLDToken.new(enoughWeiToMakeTx, {from: admin}); // 100 million wei of gold
@@ -889,7 +913,7 @@ const {
 			await this.erc20.approve(this.app.address, enoughWeiToMakeTx, {from: customerUser}); // Approve 36 cycles of token transfers + 1st
 
 			for(let i=0; i<howManyPayments;i++) {
-				await this.app.createNewOrder(smallPayment, cycleIntervalDuration, this.erc20.address, {from: merchantUser}); // 100,000 wei
+				await this.app.createNewOrder(smallPayment, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser}); // 100,000 wei
 			}
 			await this.app.setNowOverride(3);
 			for(let i=0; i<howManyPayments;i++) {
@@ -905,7 +929,7 @@ const {
 			expect(await this.erc20.balanceOf(merchantUser)).to.be.bignumber.equal(new BN(merchantShare * 2 * howManyPayments));
 		});
 		it('Tests sending many payments with gas savings', async () => {
-			const howManyPayments = 100; // 170 works -- keep low to run test in reasonable time
+			const howManyPayments = 10; // 170 works -- keep low to run test in reasonable time
 			const smallPayment = 100000;
 			const enoughWeiToMakeTx = howManyPayments * smallPayment * 10000;// could be reduced (todo)
 			this.erc20 = await GLDToken.new(enoughWeiToMakeTx, {from: admin}); // 100 million wei of gold
@@ -913,7 +937,7 @@ const {
 			await this.erc20.approve(this.app.address, enoughWeiToMakeTx, {from: customerUser}); // Approve 36 cycles of token transfers + 1st
 
 			for(let i=0; i<howManyPayments;i++) {
-				await this.app.createNewOrder(smallPayment, cycleIntervalDuration, this.erc20.address, {from: merchantUser}); // 100,000 wei
+				await this.app.createNewOrder(smallPayment, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser}); // 100,000 wei
 			}
 			await this.app.setNowOverride(3);
 			for(let i=0; i<howManyPayments;i++) {
@@ -941,8 +965,8 @@ const {
 	});
 
 	async function getGasCosts(receipt) {
-	  const tx = await web3.eth.getTransaction(receipt.tx);
-	  const gasPrice = new BN(tx.gasPrice);
-	  return gasPrice.mul(new BN(receipt.receipt.gasUsed));
+		const tx = await web3.eth.getTransaction(receipt.tx);
+		const gasPrice = new BN(tx.gasPrice);
+		return gasPrice.mul(new BN(receipt.receipt.gasUsed));
 	}
-  });
+});
