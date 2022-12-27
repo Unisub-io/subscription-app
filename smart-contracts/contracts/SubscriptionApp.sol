@@ -582,6 +582,7 @@ contract SubscriptionApp {
                 customerHistoryAmounts[_orderId][_customer][_index],
                 customerHistoryFeePercentages[_orderId][_customer][_index]
             );
+    }
 
     function setMerchantDefaultNumberOfOrderIntervals(uint256 orderId, uint256 _defaultNumberOfOrderIntervals) external{
         Order storage order = orders[orderId];

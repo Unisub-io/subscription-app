@@ -8,9 +8,9 @@ dataSources:
     name: SubscriptionApp
     network: "goerli"
     source:
-      address: "0x56603e92fffa43b198c5a4c4bf3b6b90fac8144e"
+      address: "0x639e1b11303cb337835b655bfc74de0c4c771c90"
       abi: SubscriptionApp
-      startBlock: 7469837
+      startBlock: 8205668
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.5
@@ -23,8 +23,10 @@ dataSources:
         - name: ERC20
           file: ./abis/ERC20.json
       eventHandlers:
-        - event: OrderCreated(uint256,address,uint256,uint256,uint256,address)
+        - event: OrderCreated(uint256,address,uint256,uint256,uint256,address,uint256)
           handler: handleOrderCreated
+        - event: OrderSetMerchantDefaultNumberOfOrderIntervals(uint256,uint256,address)
+          handler: handleOrderSetMerchantDefaultNumberOfOrderIntervals
         - event: OrderAccepted(uint256,address,uint256,uint256)
           handler: handleOrderAccepted
         - event: OrderPaidOut(uint256,address,uint256,uint256,uint256,address)

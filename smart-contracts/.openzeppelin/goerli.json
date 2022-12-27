@@ -29,6 +29,16 @@
       "address": "0x56603e92FfFa43b198C5A4C4bF3B6B90FAc8144E",
       "txHash": "0x511ecd30d83d820f18f0735958d3439df7b2b544c3a2fe6327210429365129fa",
       "kind": "transparent"
+    },
+    {
+      "address": "0xFe4de8fd46E22fF13d0A1764dF047D2eFD318703",
+      "txHash": "0xdab3f5224a49fd304d0267e58976b72ca8ea15a363c5044cbf23e6def3f521f4",
+      "kind": "transparent"
+    },
+    {
+      "address": "0x639e1B11303cb337835B655Bfc74de0c4c771c90",
+      "txHash": "0x6420393080d33a3e419330b812281c90f37b477d0162e3d70f080357c3bedfa7",
+      "kind": "transparent"
     }
   ],
   "impls": {
@@ -1310,6 +1320,266 @@
               }
             ],
             "numberOfBytes": "224"
+          },
+          "t_uint256": {
+            "label": "uint256",
+            "numberOfBytes": "32"
+          }
+        }
+      }
+    },
+    "a6ecee9090e7d958b5a6d2125cd0d88d0bcd75806c07a5aa9fc784097daa14f9": {
+      "address": "0x4CCd0e46d24FA069C4f015957330C420a810B121",
+      "txHash": "0xb204a3f9f7e5d5cdeb9b86f69395d601015d35219a1e5824e4ffdb268519414a",
+      "layout": {
+        "storage": [
+          {
+            "label": "initialized",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_bool",
+            "contract": "SubscriptionApp",
+            "src": "contracts\\SubscriptionApp.sol:337"
+          },
+          {
+            "label": "owner",
+            "offset": 1,
+            "slot": "0",
+            "type": "t_address",
+            "contract": "SubscriptionApp",
+            "src": "contracts\\SubscriptionApp.sol:338"
+          },
+          {
+            "label": "defaultTotalIntervals",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_uint256",
+            "contract": "SubscriptionApp",
+            "src": "contracts\\SubscriptionApp.sol:339"
+          },
+          {
+            "label": "defaultPlatformFee",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_uint256",
+            "contract": "SubscriptionApp",
+            "src": "contracts\\SubscriptionApp.sol:340"
+          },
+          {
+            "label": "nextOrder",
+            "offset": 0,
+            "slot": "3",
+            "type": "t_uint256",
+            "contract": "SubscriptionApp",
+            "src": "contracts\\SubscriptionApp.sol:341"
+          },
+          {
+            "label": "orders",
+            "offset": 0,
+            "slot": "4",
+            "type": "t_mapping(t_uint256,t_struct(Order)1691_storage)",
+            "contract": "SubscriptionApp",
+            "src": "contracts\\SubscriptionApp.sol:437"
+          },
+          {
+            "label": "customerHistoryTimestamps",
+            "offset": 0,
+            "slot": "5",
+            "type": "t_mapping(t_uint256,t_mapping(t_address,t_array(t_uint256)dyn_storage))",
+            "contract": "SubscriptionApp",
+            "src": "contracts\\SubscriptionApp.sol:439"
+          },
+          {
+            "label": "customerHistoryAmounts",
+            "offset": 0,
+            "slot": "6",
+            "type": "t_mapping(t_uint256,t_mapping(t_address,t_array(t_uint256)dyn_storage))",
+            "contract": "SubscriptionApp",
+            "src": "contracts\\SubscriptionApp.sol:440"
+          },
+          {
+            "label": "customerHistoryFeePercentages",
+            "offset": 0,
+            "slot": "7",
+            "type": "t_mapping(t_uint256,t_mapping(t_address,t_array(t_uint256)dyn_storage))",
+            "contract": "SubscriptionApp",
+            "src": "contracts\\SubscriptionApp.sol:441"
+          },
+          {
+            "label": "customPlatformFeeAssigned",
+            "offset": 0,
+            "slot": "8",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "SubscriptionApp",
+            "src": "contracts\\SubscriptionApp.sol:443"
+          },
+          {
+            "label": "customPlatformFee",
+            "offset": 0,
+            "slot": "9",
+            "type": "t_mapping(t_address,t_uint256)",
+            "contract": "SubscriptionApp",
+            "src": "contracts\\SubscriptionApp.sol:444"
+          },
+          {
+            "label": "pendingOwnerWithdrawalAmountByToken",
+            "offset": 0,
+            "slot": "10",
+            "type": "t_mapping(t_address,t_uint256)",
+            "contract": "SubscriptionApp",
+            "src": "contracts\\SubscriptionApp.sol:446"
+          },
+          {
+            "label": "pendingMerchantWithdrawalAmountByMerchantAndToken",
+            "offset": 0,
+            "slot": "11",
+            "type": "t_mapping(t_address,t_mapping(t_address,t_uint256))",
+            "contract": "SubscriptionApp",
+            "src": "contracts\\SubscriptionApp.sol:447"
+          }
+        ],
+        "types": {
+          "t_address": {
+            "label": "address",
+            "numberOfBytes": "20"
+          },
+          "t_array(t_uint256)dyn_storage": {
+            "label": "uint256[]",
+            "numberOfBytes": "32"
+          },
+          "t_bool": {
+            "label": "bool",
+            "numberOfBytes": "1"
+          },
+          "t_mapping(t_address,t_array(t_uint256)dyn_storage)": {
+            "label": "mapping(address => uint256[])",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_bool)": {
+            "label": "mapping(address => bool)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_mapping(t_address,t_uint256))": {
+            "label": "mapping(address => mapping(address => uint256))",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_struct(CustomerOrder)1669_storage)": {
+            "label": "mapping(address => struct SubscriptionApp.CustomerOrder)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_uint256)": {
+            "label": "mapping(address => uint256)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_mapping(t_address,t_array(t_uint256)dyn_storage))": {
+            "label": "mapping(uint256 => mapping(address => uint256[]))",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_struct(Order)1691_storage)": {
+            "label": "mapping(uint256 => struct SubscriptionApp.Order)",
+            "numberOfBytes": "32"
+          },
+          "t_struct(CustomerOrder)1669_storage": {
+            "label": "struct SubscriptionApp.CustomerOrder",
+            "members": [
+              {
+                "label": "customer",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "approvedPeriodsRemaining",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "firstPaymentMadeTimestamp",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "numberOfIntervalsPaid",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "terminated",
+                "type": "t_bool",
+                "offset": 0,
+                "slot": "4"
+              },
+              {
+                "label": "amountPaidToDate",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "5"
+              }
+            ],
+            "numberOfBytes": "192"
+          },
+          "t_struct(Order)1691_storage": {
+            "label": "struct SubscriptionApp.Order",
+            "members": [
+              {
+                "label": "orderId",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "merchant",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "chargePerInterval",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "startTime",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "intervalDuration",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "4"
+              },
+              {
+                "label": "erc20",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "5"
+              },
+              {
+                "label": "paused",
+                "type": "t_bool",
+                "offset": 20,
+                "slot": "5"
+              },
+              {
+                "label": "merchantDefaultNumberOfOrderIntervals",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "6"
+              },
+              {
+                "label": "customerOrders",
+                "type": "t_mapping(t_address,t_struct(CustomerOrder)1669_storage)",
+                "offset": 0,
+                "slot": "7"
+              }
+            ],
+            "numberOfBytes": "256"
           },
           "t_uint256": {
             "label": "uint256",

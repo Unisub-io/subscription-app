@@ -97,10 +97,10 @@ module.exports = {
       accounts: [`0x${PRIVATE_KEY}`]
     },
     goerli: {
-      url: `https://goerli.infura.io/v3/${INFURA_PROJECT_ID}`,
+      url: `https://rpc.goerli.mudit.blog/`,
       accounts: [`0x${PRIVATE_KEY}`,`0x${PRIVATE_KEY1}`,`0x${PRIVATE_KEY2}`,`0x${PRIVATE_KEY3}`],
       timeout: 360000000,
-      gasPrice: 2000000000,
+      gasPrice: 200000000,
     },
     mumbai: {
       // url: `https://polygon-mumbai.infura.io/v3/6e9690131f584ee0a8b445ebb4740f8b`,

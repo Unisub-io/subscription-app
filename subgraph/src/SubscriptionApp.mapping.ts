@@ -4,7 +4,6 @@ import {
     MerchantWithdrawERC20,
     OrderAccepted,
     OrderCancelled,
-
     OrderCreated,
     OrderPaidOut, OrderPaidOutGasSavingMode,
     OrderPaused,
@@ -13,6 +12,7 @@ import {
     PaymentFailure,
     SubscriptionApp,
     SuccessfulPay,
+    OrderSetMerchantDefaultNumberOfOrderIntervals
 } from "../generated/SubscriptionApp/SubscriptionApp";
 
 import {
@@ -30,7 +30,7 @@ import {
 
 import {ERC20} from "../generated/SubscriptionApp/ERC20";
 import {ZERO} from "./constants";
-const goerliAddress = "0x56603e92fffa43b198c5a4c4bf3b6b90fac8144e"; //TODO
+const goerliAddress = "0x639e1b11303cb337835b655bfc74de0c4c771c90"; //TODO
 
 export function handleOrderCreated(event: OrderCreated): void {
   let order = new Order(event.params.orderId.toString());
@@ -97,6 +97,8 @@ else if(intervalDuration.equals(BigInt.fromI32(9))) {
   }
 
   order.startTime = event.params.startTime;
+
+  order.merchantDefaultNumberOfOrderIntervals = event.params.merchantDefaultNumberOfOrderIntervals;
 
   order.save();
   merchant.save();
@@ -615,5 +617,24 @@ export function handleMerchantWithdrawERC20(event: MerchantWithdrawERC20): void 
         merchantERC20Withdrawal.depositsBalance = merchantERC20DepositsBalance.id;
         merchantERC20Withdrawal.save();
     }
+}
+
+export function handleOrderSetMerchantDefaultNumberOfOrderIntervals(event: OrderSetMerchantDefaultNumberOfOrderIntervals): void {
+    let order = new Order(event.params.orderId.toString());
+    if(order){
+        order.merchantDefaultNumberOfOrderIntervals = event.params.defaultNumberOfOrderIntervals;
+        order.save();
+    }
+    // let merchantERC20DepositsBalance = MerchantERC20DepositsBalance.load(event.params.merchant.toHexString().concat('-').concat(event.params.erc20.toHexString()));
+    // if(merchantERC20DepositsBalance){
+    //     merchantERC20DepositsBalance.amount = BigInt.fromI32(0);
+    //     merchantERC20DepositsBalance.save();
+    //
+    //     let merchantERC20Withdrawal = new MerchantWithdrawalHistory(event.transaction.hash.toHexString());
+    //     merchantERC20Withdrawal.amount = event.params.value;
+    //     merchantERC20Withdrawal.timestamp = event.block.timestamp;
+    //     merchantERC20Withdrawal.depositsBalance = merchantERC20DepositsBalance.id;
+    //     merchantERC20Withdrawal.save();
+    // }
 }
 

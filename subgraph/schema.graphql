@@ -9,6 +9,7 @@ type Order @entity {
   customerOrderPaymentHistory: [CustomerOrderPaymentHistory!]! @derivedFrom(field:"order")
   customerGasSavingDepositHistory: [CustomerGasSavingDepositHistory!]! @derivedFrom(field:"order")
   paused: Boolean!
+  merchantDefaultNumberOfOrderIntervals: BigInt!
 }
 
 type CustomerOrder @entity {

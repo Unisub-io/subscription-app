@@ -23,8 +23,10 @@ dataSources:
         - name: ERC20
           file: ./abis/ERC20.json
       eventHandlers:
-        - event: OrderCreated(uint256,address,uint256,uint256,uint256,address)
+        - event: OrderCreated(uint256,address,uint256,uint256,uint256,address,uint256)
           handler: handleOrderCreated
+        - event: OrderSetMerchantDefaultNumberOfOrderIntervals(uint256,uint256,address)
+          handler: handleOrderSetMerchantDefaultNumberOfOrderIntervals
         - event: OrderAccepted(uint256,address,uint256,uint256)
           handler: handleOrderAccepted
         - event: OrderPaidOut(uint256,address,uint256,uint256,uint256,address)
