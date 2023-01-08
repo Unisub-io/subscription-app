@@ -29,7 +29,7 @@ import {
 } from "../generated/schema";
 
 import {ERC20} from "../generated/SubscriptionApp/ERC20";
-import {ZERO} from "./constants";
+import {ONE, ZERO} from "./constants";
 const goerliAddress = "0x639e1b11303cb337835b655bfc74de0c4c771c90"; //TODO
 
 export function handleOrderCreated(event: OrderCreated): void {
@@ -42,6 +42,8 @@ export function handleOrderCreated(event: OrderCreated): void {
   order.chargePerInterval = event.params.chargePerInterval;
   order.paused = false;
   order.merchant = merchant.id;
+  order.numberOfCustomers = ZERO;
+  order.totalCharged = ZERO;
 
   // Process erc20 token
   let erc20Token = ERC20Token.load(event.params.erc20.toHexString());
@@ -231,6 +233,8 @@ export function handleOrderAccepted(event: OrderAccepted): void {
          }
         approvalAndBalance.save();
 
+        order.totalCharged = order.totalCharged.plus(order.chargePerInterval);
+        order.numberOfCustomers = order.numberOfCustomers.plus(ONE);
         order.save();
     }
 }
@@ -300,6 +304,7 @@ export function handleOrderPaidOut(event: OrderPaidOut): void {
                     approvalAndBalance.save();
                 }
             }
+            order.totalCharged = order.totalCharged.plus(event.params.amount);
             order.save();
         }
 
@@ -402,6 +407,7 @@ export function handleOrderPaidOutGasSavingMode (event: OrderPaidOutGasSavingMod
                     approvalAndBalance.save();
                 }
             }
+            order.totalCharged = order.totalCharged.plus(event.params.amount);
             order.save();
         }
 
@@ -482,6 +488,7 @@ export function handleOrderRenewed(event: OrderRenewed): void {
                     }
                     approvalAndBalance.save();
 
+                    order.totalCharged = order.totalCharged.plus(order.chargePerInterval);
                     order.save();
                 } else {
                     // This is the case for an order that was active so was extended
@@ -625,16 +632,5 @@ export function handleOrderSetMerchantDefaultNumberOfOrderIntervals(event: Order
         order.merchantDefaultNumberOfOrderIntervals = event.params.defaultNumberOfOrderIntervals;
         order.save();
     }
-    // let merchantERC20DepositsBalance = MerchantERC20DepositsBalance.load(event.params.merchant.toHexString().concat('-').concat(event.params.erc20.toHexString()));
-    // if(merchantERC20DepositsBalance){
-    //     merchantERC20DepositsBalance.amount = BigInt.fromI32(0);
-    //     merchantERC20DepositsBalance.save();
-    //
-    //     let merchantERC20Withdrawal = new MerchantWithdrawalHistory(event.transaction.hash.toHexString());
-    //     merchantERC20Withdrawal.amount = event.params.value;
-    //     merchantERC20Withdrawal.timestamp = event.block.timestamp;
-    //     merchantERC20Withdrawal.depositsBalance = merchantERC20DepositsBalance.id;
-    //     merchantERC20Withdrawal.save();
-    // }
 }
 

@@ -5,6 +5,8 @@ type Order @entity {
   erc20: ERC20Token!
   intervalDuration: String!
   startTime: BigInt!
+  totalCharged: BigInt!
+  numberOfCustomers: BigInt!
   customerOrders: [CustomerOrder!]! @derivedFrom(field:"order")
   customerOrderPaymentHistory: [CustomerOrderPaymentHistory!]! @derivedFrom(field:"order")
   customerGasSavingDepositHistory: [CustomerGasSavingDepositHistory!]! @derivedFrom(field:"order")
