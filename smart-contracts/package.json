@@ -22,6 +22,7 @@
     "@openzeppelin/hardhat-upgrades": "^1.19.0",
     "@openzeppelin/test-helpers": "^0.5.15",
     "@truffle/hdwallet-provider": "^2.0.4",
+    "axios": "^1.2.2",
     "chai": "^4.2.0",
     "coingecko-api-v3": "^0.0.13",
     "dotenv": "^8.2.0",
