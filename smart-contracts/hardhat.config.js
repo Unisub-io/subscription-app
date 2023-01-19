@@ -99,6 +99,7 @@ module.exports = {
     goerli: {
       url: `https://goerli.infura.io/v3/${INFURA_PROJECT_ID}`,
       accounts: [`0x${PRIVATE_KEY}`,`0x${PRIVATE_KEY1}`,`0x${PRIVATE_KEY2}`,`0x${PRIVATE_KEY3}`],
+      gasPrice: 10000000000, // This is 10 gwei
     },
     mumbai: {
       // url: `https://polygon-mumbai.infura.io/v3/6e9690131f584ee0a8b445ebb4740f8b`,
