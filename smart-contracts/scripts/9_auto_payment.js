@@ -5,7 +5,7 @@ const _ = require('lodash');
 async function main() {
 
   // Need to fill this out before running script.
-  let merchantId = '0x6d70E79fC60b495fF61B6f23CBE0Ec971103D32b';
+  let merchantId = '0x5573b798c2cdbe36da493652fe86591804968cb9';
   let gasSavingsModeOn = false;
 
   const username = "admin";
@@ -52,7 +52,9 @@ async function main() {
     });
 
     //    let merchantSubs = z.data.subscriptions;
-    let merchantSubs = z.data.subscriptions.filter(x=>{return x.approvedPeriodsRemaining});
+  console.log('z.data.subscriptions');
+  console.log(z.data.subscriptions);
+    let merchantSubs = z.data.subscriptions.filter(x=>{return x.approvedPeriodsRemaining > 0});
 
     // Build up a list of orders to submit to the batch processing
   let MAX_SINGLE_TX = 10;
@@ -80,7 +82,19 @@ async function main() {
     console.log('Paid portion of customers...');
   }
 
-  // TODO add a wait for 10 seconds
+  // Wait for 10 seconds so the graph can process what just happened
+  await new Promise(resolve => setTimeout(resolve, 10000));
+
+  z = await axios({
+    method: 'get',
+    url: `${BACKEND_URL}/getpendingpaymentsubsbymerchant/${merchantId}/${failedPayment}/${onlyInvalid}`,
+    headers: { Authorization: `Bearer ${accessKey}` }
+  });
+
+  console.log('Updated info');
+  console.log('z.data.subscriptions');
+  console.log(z.data.subscriptions);
+
 
   // TODO check merchantsubs vs the "failedpending payment" category to get an export of the "failed" payments (the api also picks up on this, but is global and does not yet have filters/email)
 
