@@ -54,11 +54,13 @@ async function main() {
     //    let merchantSubs = z.data.subscriptions;
   console.log('z.data.subscriptions');
   console.log(z.data.subscriptions);
-    let merchantSubs = z.data.subscriptions.filter(x=>{return x.approvedPeriodsRemaining > 0});
+    let merchantSubs = z.data.subscriptions.filter(x=>{return x.approvedPeriodsRemaining > 0}); // "available to charge"
 
     // Build up a list of orders to submit to the batch processing
   let MAX_SINGLE_TX = 10;
   const chunks = _.chunk(merchantSubs, MAX_SINGLE_TX);
+
+  let txHashes = [];
 
   for(let i = 0; i< chunks.length ; i++){
     const chunky = chunks[i];
@@ -76,10 +78,14 @@ async function main() {
     console.log(chunkCustomers);
 
     // // Payment for customer will go through as non gas saving
-    const processPaymentNoGasSaving = await appContractOnMerchant.batchProcessPayment(chunkIds, chunkCustomers, gasSavingsModeOn);
-    await processPaymentNoGasSaving.wait();
+    const processPayment = await appContractOnMerchant.batchProcessPayment(chunkIds, chunkCustomers, gasSavingsModeOn);
+    const processPaymentReturnResult = await processPayment.wait();
+    console.log('The logs');
+    console.log(processPaymentReturnResult.logs);
 
     console.log('Paid portion of customers...');
+
+    txHashes.push(processPayment.hash);
   }
 
   // Wait for 10 seconds so the graph can process what just happened
@@ -95,8 +101,23 @@ async function main() {
   console.log('z.data.subscriptions');
   console.log(z.data.subscriptions);
 
+  let failedMerchantSubs = z.data.subscriptions.filter(x=>{return x.approvedPeriodsRemaining > 0 && x.lastOutstandingPaymentFailed === true});
 
-  // TODO check merchantsubs vs the "failedpending payment" category to get an export of the "failed" payments (the api also picks up on this, but is global and does not yet have filters/email)
+  let failedOrderIdsArray = failedMerchantSubs.map(x => x.id );
+
+  console.log(failedOrderIdsArray)
+
+  let successfulMerchantSubs = merchantSubs.filter(x => !failedOrderIdsArray.includes(x.id));
+
+  console.log('--------------------');
+  console.log('successful merchant subs payments');
+  console.log(successfulMerchantSubs);
+
+  console.log('--------------------');
+  console.log('failedMerchantSubs');
+  console.log(failedMerchantSubs);
+
+  console.log(txHashes);
 
   // TODO Create a report about the successful and failed payments
 
