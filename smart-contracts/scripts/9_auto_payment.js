@@ -1,6 +1,33 @@
 const SubscriptionAppArtifact = require('../artifacts/contracts/SubscriptionApp.sol/SubscriptionApp.json');
 const axios = require('axios');
 const _ = require('lodash');
+const fs = require('fs');
+
+function convertJSONtocsv(json) {
+  if (json.length === 0) {
+    return;
+  }
+
+  json.sort(function(a,b){
+    return Object.keys(b).length - Object.keys(a).length;
+  });
+
+  const replacer = (key, value) => value === null ? '' : value // specify how you want to handle null values here
+  const header = Object.keys(json[0]);
+
+  var first = "status";
+  var second = "order";
+  var third = "customer";
+  header.sort(function(x,y){ return x == third ? -1 : y == third ? 1 : 0; });
+  header.sort(function(x,y){ return x == second ? -1 : y == second ? 1 : 0; });
+  header.sort(function(x,y){ return x == first ? -1 : y == first ? 1 : 0; });
+
+  let csv = json.map(row => header.map(fieldName => JSON.stringify(row[fieldName], replacer)).join(','))
+  csv.unshift(header.join(','))
+  csv = csv.join('\r\n')
+
+  fs.writeFileSync('payments.csv', csv)
+}
 
 async function main() {
 
@@ -51,7 +78,6 @@ async function main() {
       headers: { Authorization: `Bearer ${accessKey}` }
     });
 
-    //    let merchantSubs = z.data.subscriptions;
   console.log('z.data.subscriptions');
   console.log(z.data.subscriptions);
     let merchantSubs = z.data.subscriptions.filter(x=>{return x.approvedPeriodsRemaining > 0}); // "available to charge"
@@ -80,8 +106,8 @@ async function main() {
     // // Payment for customer will go through as non gas saving
     const processPayment = await appContractOnMerchant.batchProcessPayment(chunkIds, chunkCustomers, gasSavingsModeOn);
     const processPaymentReturnResult = await processPayment.wait();
-    console.log('The logs');
-    console.log(processPaymentReturnResult.logs);
+    // console.log('The logs');
+    // console.log(processPaymentReturnResult.logs);
 
     console.log('Paid portion of customers...');
 
@@ -89,7 +115,7 @@ async function main() {
   }
 
   // Wait for 10 seconds so the graph can process what just happened
-  await new Promise(resolve => setTimeout(resolve, 10000));
+  await new Promise(resolve => setTimeout(resolve, 20000));
 
   z = await axios({
     method: 'get',
@@ -102,26 +128,106 @@ async function main() {
   console.log(z.data.subscriptions);
 
   let failedMerchantSubs = z.data.subscriptions.filter(x=>{return x.approvedPeriodsRemaining > 0 && x.lastOutstandingPaymentFailed === true});
-
   let failedOrderIdsArray = failedMerchantSubs.map(x => x.id );
 
-  console.log(failedOrderIdsArray)
+  // Refresh an all merchant subs
+  let allMerchantSubs = z.data.subscriptions;
 
-  let successfulMerchantSubs = merchantSubs.filter(x => !failedOrderIdsArray.includes(x.id));
-
-  console.log('--------------------');
-  console.log('successful merchant subs payments');
-  console.log(successfulMerchantSubs);
-
+  // This shows for each merchant the failed ones
   console.log('--------------------');
   console.log('failedMerchantSubs');
   console.log(failedMerchantSubs);
 
-  console.log(txHashes);
+  // Call for the successful and failed payments for each of the txs hashes
+  let successfulPayments = [];
+  let failedPayments = [];
+  for(let j=0; j<txHashes.length; j++){
+    // For each tx hash, check for any failed or completed payments, add them to a JSON Array
+    let a1 = await axios({
+      method: 'get',
+      url: `${BACKEND_URL}/getsuccessfulpaymentsbytx/${txHashes[j]}`,
+      headers: { Authorization: `Bearer ${accessKey}` }
+    });
+    let a2 = await axios({
+      method: 'get',
+      url: `${BACKEND_URL}/getfailedpaymentsbytx/${txHashes[j]}`,
+      headers: { Authorization: `Bearer ${accessKey}` }
+    });
+    let successfulPayment = a1.data;
+    let failedPayment = a2.data;
+    console.log(a1.data);
+    console.log(a2.data);
+    // For successful payments, add them to the json and do any necessary computations with the return value from successful and failed (lastOutstandingPaymentFailed)
+    successfulPayment.payments.forEach((value) => {
+      successfulPayments.push(value);
+    })
 
-  // TODO Create a report about the successful and failed payments
+    failedPayment.payments.forEach((value) => {
+      failedPayments.push(value);
+    })
+  }
 
-  // TODO Email a report to the stakeholders
+  console.log(successfulPayments);
+  console.log(failedPayments);
+
+  for(let y=0; y<successfulPayments.length; y++){
+    successfulPayments[y].status = 'success';
+  }
+
+  for(let z=0; z<failedPayments.length; z++){
+    failedPayments[z].status = 'fail';
+  }
+
+  let allPayments = successfulPayments.concat(failedPayments);
+
+
+  console.log(allMerchantSubs);
+  for(let x=0; x<allPayments.length; x++){
+    allPayments[x].merchant = allPayments[x].merchant.id;
+    allPayments[x].customer = allPayments[x].customer.id;
+    allPayments[x].customerOrder = allPayments[x].customerOrder.id;
+    allPayments[x].order = allPayments[x].order.id;
+
+    console.log(allPayments[x].customerOrder)
+    // Check all merchant subs
+    allPayments[x].approvedPeriodsRemaining = allMerchantSubs.find(sub => allPayments[x].customerOrder ===  sub.id).approvedPeriodsRemaining;
+    allPayments[x].numberOfIntervalsPaid = allMerchantSubs.find(sub => allPayments[x].customerOrder ===  sub.id).numberOfIntervalsPaid;
+    allPayments[x].nextPaymentTimestamp = allMerchantSubs.find(sub => allPayments[x].customerOrder ===  sub.id).nextPaymentTimestamp;
+    allPayments[x].lastOutstandingPaymentFailed = allMerchantSubs.find(sub => allPayments[x].customerOrder ===  sub.id).lastOutstandingPaymentFailed;
+    allPayments[x].amountPaidToDate = allMerchantSubs.find(sub => allPayments[x].customerOrder ===  sub.id).amountPaidToDate;
+    allPayments[x].intervalDuration = allMerchantSubs.find(sub => allPayments[x].customerOrder ===  sub.id).order.intervalDuration;
+    allPayments[x].chargePerInterval = allMerchantSubs.find(sub => allPayments[x].customerOrder ===  sub.id).order.chargePerInterval;
+  }
+
+
+  // Create a report about the successful and failed payments
+  convertJSONtocsv(allPayments);
+
+  console.log('sending email');
+
+  // Email a report to the stakeholders
+
+  const mailgun = require("mailgun-js");
+  const DOMAIN = 'sandbox670cfd06b6b0445788d171a47e17710f';
+  const api_key = '2ddb885e87a453b73977d63fd4443638-c9746cf8-91181dbc';
+  const mg = mailgun({apiKey: api_key, domain: DOMAIN});
+  const data = {
+    from: 'Excited User <postmaster@sandbox670cfd06b6b0445788d171a47e17710f.mailgun.org>',
+    to: 'merchant@merchant.com',
+    subject: 'Payment processed on your Unisub subscriptions ',
+    text: 'Valued Unisub Merchant, we have processed your payments. ' +
+        'Please find an attached csv with the information about successful and failed payments. ' +
+        'All the best from the Unisub team',
+    // attachments: [
+    //   {   // utf-8 string as an attachment
+    //     filename: 'payments.csv',
+    //     path: 'payments.csv'
+    //   }
+    // ]
+  };
+  mg.messages().send(data, function (error, body) {
+    console.log(body);
+  });
 }
 
 main()
