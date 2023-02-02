@@ -163,7 +163,7 @@ async function main() {
 
   z = await axios({
     method: 'get',
-    url: `${BACKEND_URL}/getpendingpaymentsubsbymerchant/${merchantId}/${failedPayment}/${onlyInvalid}`,
+    url: `${BACKEND_URL}/getsubsbymerchant/${merchantId}/${onlyInvalid}`,
     headers: { Authorization: `Bearer ${accessKey}` }
   });
 
@@ -251,14 +251,12 @@ async function main() {
   console.log('===================');
   console.log('totalGasSpent on all payments (ETH)');
   console.log(totalGasSpent);
-  console.log('totalGasSpent on all payments (ETH)');
-  console.log(totalGasSpent);
 
   console.log('===================');
   console.log('Total Payment Report By Order Id');
 
-  let res = Array.from(allPayments.reduce(
-      (m, {order, amount}) => m.set(order, (m.get(order) || 0) + amount), new Map
+  let res = Array.from(successfulPayments.reduce(
+      (m, {order, amount}) => m.set(order, (m.get(order) || 0) + parseInt(amount)), new Map
   ), ([order, amount]) => ({order, amount}));
 
   console.log(res);
