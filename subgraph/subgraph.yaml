@@ -6,11 +6,11 @@ schema:
 dataSources:
   - kind: ethereum/contract
     name: SubscriptionApp
-    network: "goerli"
+    network: "matic"
     source:
-      address: "0x639e1b11303cb337835b655bfc74de0c4c771c90"
+      address: "0x5CF590F30236D6193626CAa02Dd4de9e2bBb3394"
       abi: SubscriptionApp
-      startBlock: 8205668
+      startBlock: 38765351
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.5

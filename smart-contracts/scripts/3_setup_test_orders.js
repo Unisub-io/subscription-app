@@ -19,17 +19,19 @@ async function main() {
  // const APP_ADDRESS = "0x10360Cae6E622E14d95558891a12634a7bf443d1"
  //  const APP_ADDRESS = "0x56603e92FfFa43b198C5A4C4bF3B6B90FAc8144E"
  //  const WETH_ADDRESS = "0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6"
-  const APP_ADDRESS = "0x639e1B11303cb337835B655Bfc74de0c4c771c90"
+ // const APP_ADDRESS = "0x639e1B11303cb337835B655Bfc74de0c4c771c90"
+ // const APP_ADDRESS = "0x4bA75555E692C7C400322C96b9264A0a7f0a4719"
+  const APP_ADDRESS = "0x5CF590F30236D6193626CAa02Dd4de9e2bBb3394"
   const WETH_ADDRESS = "0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6"
 
   const appContractOnMerchant =  new ethers.Contract(
       APP_ADDRESS,
       SubscriptionAppArtifact.abi,
-      deployer
+      customer1
   );
 
   // 10,000 gwei, minute, weth address on goerli, 10 hrs
-  const addOrder = await appContractOnMerchant.createNewOrder(10000, 8, WETH_ADDRESS, 600);
+  const addOrder = await appContractOnMerchant.createNewOrder(10001, 7, WETH_ADDRESS, 600, {from: customer1Address});
   await addOrder.wait();
 
   let orderNumber = 0; // Order number from previous step above

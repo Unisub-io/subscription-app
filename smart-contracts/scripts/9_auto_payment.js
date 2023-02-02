@@ -2,8 +2,10 @@ const SubscriptionAppArtifact = require('../artifacts/contracts/SubscriptionApp.
 const axios = require('axios');
 const _ = require('lodash');
 const fs = require('fs');
+const nodemailer = require('nodemailer');
+const {BN} = require("@openzeppelin/test-helpers");
 
-function convertJSONtocsv(json) {
+function convertJSONtocsv(network, json) {
   if (json.length === 0) {
     return;
   }
@@ -12,17 +14,41 @@ function convertJSONtocsv(json) {
     return Object.keys(b).length - Object.keys(a).length;
   });
 
+  // Change from order to orderId, from id to paymentId
+  json = json.map(x=>{
+    let i= x;
+    // i.put("Order Id", i.remove("order"));
+    // i.put("Payment Id", i.remove("id"));
+    i.orderId = i.order;
+    delete i.order;
+    i.paymentId = i.id;
+    delete i.id;
+
+    // Make the json change utc timestamp
+    i.date = new Date(parseInt(i.timestamp)).toUTCString();
+
+    i.network = network;
+
+    return i;
+  })
+
+
+
   const replacer = (key, value) => value === null ? '' : value // specify how you want to handle null values here
   const header = Object.keys(json[0]);
 
-  var first = "status";
-  var second = "order";
-  var third = "customer";
+  var first = "date";
+  var second = "status";
+  var third = "orderId";
+  var fourth = "customer";
+  header.sort(function(x,y){ return x == fourth ? -1 : y == fourth ? 1 : 0; });
   header.sort(function(x,y){ return x == third ? -1 : y == third ? 1 : 0; });
   header.sort(function(x,y){ return x == second ? -1 : y == second ? 1 : 0; });
   header.sort(function(x,y){ return x == first ? -1 : y == first ? 1 : 0; });
 
+
   let csv = json.map(row => header.map(fieldName => JSON.stringify(row[fieldName], replacer)).join(','))
+
   csv.unshift(header.join(','))
   csv = csv.join('\r\n')
 
@@ -34,6 +60,7 @@ async function main() {
   // Need to fill this out before running script.
   let merchantId = '0x5573b798c2cdbe36da493652fe86591804968cb9';
   let gasSavingsModeOn = false;
+  let networkPaid = 'GOERLI';
 
   const username = "admin";
   const password = "adminsubs";
@@ -61,6 +88,8 @@ async function main() {
   console.log(deployerAddress);
 
   const APP_ADDRESS = "0x639e1B11303cb337835B655Bfc74de0c4c771c90"
+  //const APP_ADDRESS = "0x4bA75555E692C7C400322C96b9264A0a7f0a4719" //mumbai
+  //const APP_ADDRESS = "0x5CF590F30236D6193626CAa02Dd4de9e2bBb3394" //polygon
 
     const appContractOnMerchant =  new ethers.Contract(
         APP_ADDRESS,
@@ -86,7 +115,8 @@ async function main() {
   let MAX_SINGLE_TX = 10;
   const chunks = _.chunk(merchantSubs, MAX_SINGLE_TX);
 
-  let txHashes = [];
+  let transactionInformation = [];
+  let totalGasSpent = 0;
 
   for(let i = 0; i< chunks.length ; i++){
     const chunky = chunks[i];
@@ -103,15 +133,29 @@ async function main() {
     })
     console.log(chunkCustomers);
 
+    console.log('Waiting for transaction to be picked up by network...');
+
     // // Payment for customer will go through as non gas saving
     const processPayment = await appContractOnMerchant.batchProcessPayment(chunkIds, chunkCustomers, gasSavingsModeOn);
     const processPaymentReturnResult = await processPayment.wait();
-    // console.log('The logs');
-    // console.log(processPaymentReturnResult.logs);
+    console.log('The logs');
+    console.log('Number of payments trying to make ');
+    console.log(chunky.length);
+    let gasExpenditure = ethers.utils.formatEther(processPaymentReturnResult.gasUsed.mul(processPaymentReturnResult.effectiveGasPrice));
+    console.log('total gas consumed: \t', processPaymentReturnResult.gasUsed.toString())
+    console.log('total gas price: \t (gwei)', (parseFloat(processPaymentReturnResult.effectiveGasPrice.toString())/ 1000000000));
+    console.log('total ether spent on gas for transaction: \t (eth)', gasExpenditure)
+    totalGasSpent = totalGasSpent + parseFloat(gasExpenditure);
 
-    console.log('Paid portion of customers...');
 
-    txHashes.push(processPayment.hash);
+    console.log('Payments completed');
+
+    transactionInformation.push({
+      transactionNumber: i,
+      txHash: processPayment.hash,
+      gasSpentOnTransaction: gasExpenditure,
+      numberOfCustomersInThisTransaction: chunky.length
+    });
   }
 
   // Wait for 10 seconds so the graph can process what just happened
@@ -141,16 +185,16 @@ async function main() {
   // Call for the successful and failed payments for each of the txs hashes
   let successfulPayments = [];
   let failedPayments = [];
-  for(let j=0; j<txHashes.length; j++){
+  for(let j=0; j<transactionInformation.length; j++){
     // For each tx hash, check for any failed or completed payments, add them to a JSON Array
     let a1 = await axios({
       method: 'get',
-      url: `${BACKEND_URL}/getsuccessfulpaymentsbytx/${txHashes[j]}`,
+      url: `${BACKEND_URL}/getsuccessfulpaymentsbytx/${transactionInformation[j]}`,
       headers: { Authorization: `Bearer ${accessKey}` }
     });
     let a2 = await axios({
       method: 'get',
-      url: `${BACKEND_URL}/getfailedpaymentsbytx/${txHashes[j]}`,
+      url: `${BACKEND_URL}/getfailedpaymentsbytx/${transactionInformation[j]}`,
       headers: { Authorization: `Bearer ${accessKey}` }
     });
     let successfulPayment = a1.data;
@@ -197,37 +241,33 @@ async function main() {
     allPayments[x].amountPaidToDate = allMerchantSubs.find(sub => allPayments[x].customerOrder ===  sub.id).amountPaidToDate;
     allPayments[x].intervalDuration = allMerchantSubs.find(sub => allPayments[x].customerOrder ===  sub.id).order.intervalDuration;
     allPayments[x].chargePerInterval = allMerchantSubs.find(sub => allPayments[x].customerOrder ===  sub.id).order.chargePerInterval;
+    allPayments[x].contractAddress = allMerchantSubs.find(sub => allPayments[x].customerOrder ===  sub.id).order.erc20.id;
+    allPayments[x].totalGasSpent = `${totalGasSpent} ETH`;
   }
+
+  console.log('===================');
+  console.log('transactionInformation');
+  console.log(transactionInformation);
+  console.log('===================');
+  console.log('totalGasSpent on all payments (ETH)');
+  console.log(totalGasSpent);
+  console.log('totalGasSpent on all payments (ETH)');
+  console.log(totalGasSpent);
+
+  console.log('===================');
+  console.log('Total Payment Report By Order Id');
+
+  let res = Array.from(allPayments.reduce(
+      (m, {order, amount}) => m.set(order, (m.get(order) || 0) + amount), new Map
+  ), ([order, amount]) => ({order, amount}));
+
+  console.log(res);
 
 
   // Create a report about the successful and failed payments
-  convertJSONtocsv(allPayments);
+  convertJSONtocsv(networkPaid, allPayments);
 
-  console.log('sending email');
-
-  // Email a report to the stakeholders
-
-  const mailgun = require("mailgun-js");
-  const DOMAIN = 'sandbox670cfd06b6b0445788d171a47e17710f';
-  const api_key = '2ddb885e87a453b73977d63fd4443638-c9746cf8-91181dbc';
-  const mg = mailgun({apiKey: api_key, domain: DOMAIN});
-  const data = {
-    from: 'Excited User <postmaster@sandbox670cfd06b6b0445788d171a47e17710f.mailgun.org>',
-    to: 'merchant@merchant.com',
-    subject: 'Payment processed on your Unisub subscriptions ',
-    text: 'Valued Unisub Merchant, we have processed your payments. ' +
-        'Please find an attached csv with the information about successful and failed payments. ' +
-        'All the best from the Unisub team',
-    // attachments: [
-    //   {   // utf-8 string as an attachment
-    //     filename: 'payments.csv',
-    //     path: 'payments.csv'
-    //   }
-    // ]
-  };
-  mg.messages().send(data, function (error, body) {
-    console.log(body);
-  });
+  console.log('fin')
 }
 
 main()
