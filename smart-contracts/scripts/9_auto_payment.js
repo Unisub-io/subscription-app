@@ -189,12 +189,12 @@ async function main() {
     // For each tx hash, check for any failed or completed payments, add them to a JSON Array
     let a1 = await axios({
       method: 'get',
-      url: `${BACKEND_URL}/getsuccessfulpaymentsbytx/${transactionInformation[j]}`,
+      url: `${BACKEND_URL}/getsuccessfulpaymentsbytx/${transactionInformation[j].txHash}`,
       headers: { Authorization: `Bearer ${accessKey}` }
     });
     let a2 = await axios({
       method: 'get',
-      url: `${BACKEND_URL}/getfailedpaymentsbytx/${transactionInformation[j]}`,
+      url: `${BACKEND_URL}/getfailedpaymentsbytx/${transactionInformation[j].txHash}`,
       headers: { Authorization: `Bearer ${accessKey}` }
     });
     let successfulPayment = a1.data;
