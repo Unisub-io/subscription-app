@@ -1,4 +1,4 @@
-import { BigInt, Address } from "@graphprotocol/graph-ts/index";
+import { BigInt, Address, log } from "@graphprotocol/graph-ts/index";
 
 import {
     MerchantWithdrawERC20,
@@ -30,9 +30,9 @@ import {
 
 import {ERC20} from "../generated/SubscriptionApp/ERC20";
 import {ONE, ZERO} from "./constants";
-// const goerliAddress = "0x639e1b11303cb337835b655bfc74de0c4c771c90"; //TODO
-// const mumbaiAddress = "0x4bA75555E692C7C400322C96b9264A0a7f0a4719"; //TODO
-const polygonAddress = "0x5CF590F30236D6193626CAa02Dd4de9e2bBb3394"; //TODO
+//const subsAddress = "0x639e1b11303cb337835b655bfc74de0c4c771c90"; //goerli
+//const subsAddress = "0x4bA75555E692C7C400322C96b9264A0a7f0a4719"; //mumbai
+const subsAddress = "0x5CF590F30236D6193626CAa02Dd4de9e2bBb3394"; //polygon
 
 export function handleOrderCreated(event: OrderCreated): void {
   let order = new Order(event.params.orderId.toString());
@@ -109,7 +109,7 @@ else if(intervalDuration.equals(BigInt.fromI32(9))) {
 }
 
 function getNextPaymentTimestamp(intervalDuration: string, firstTimestamp: BigInt, numberOfIntervalsPaid: BigInt): BigInt{
-    const contract = SubscriptionApp.bind(Address.fromString(polygonAddress));
+    const contract = SubscriptionApp.bind(Address.fromString(subsAddress));
     if(intervalDuration == "Yearly") {
         let tryAddYears = contract.try_addYearsToTimestamp(firstTimestamp, numberOfIntervalsPaid);
         if (!tryAddYears.reverted) {
@@ -195,7 +195,7 @@ export function handleOrderAccepted(event: OrderAccepted): void {
         customerOrderPaymentHistory.description = `Payment made for ${order.chargePerInterval} ${ERC20Token.load(order.erc20)!.symbol} (${ERC20Token.load(order.erc20)!.name}) Tokens from ${customer.id} to ${order.merchant} without gas savings mode`;
         customerOrderPaymentHistory.feePercentage = BigInt.fromI32(0);
         customerOrderPaymentHistory.gasSaving = false;
-        const contract = SubscriptionApp.bind(Address.fromString(polygonAddress));
+        const contract = SubscriptionApp.bind(Address.fromString(subsAddress));
         let tryFee = contract.try_platformFee(Address.fromString(order.merchant));
         if (!tryFee.reverted) {
                 customerOrderPaymentHistory.feePercentage = tryFee.value;
@@ -225,7 +225,7 @@ export function handleOrderAccepted(event: OrderAccepted): void {
             approvalAndBalance.customer = customer.id;
         }
          const erc20Contract = ERC20.bind(Address.fromString(order.erc20));
-         let tryAllowance = erc20Contract.try_allowance(Address.fromString(customer.id), Address.fromString(polygonAddress));
+         let tryAllowance = erc20Contract.try_allowance(Address.fromString(customer.id), Address.fromString(subsAddress));
          if (!tryAllowance.reverted) {
                 approvalAndBalance.currentAllowance = tryAllowance.value;
          }
@@ -253,7 +253,7 @@ export function handleOrderPaidOut(event: OrderPaidOut): void {
             let customerOrder = CustomerOrder.load(customerOrderId);  //# orderId - customer Eth address
             if(customerOrder) {
                 // TODO this block, update the order
-                const contract = SubscriptionApp.bind(Address.fromString(polygonAddress));
+                const contract = SubscriptionApp.bind(Address.fromString(subsAddress));
                 let tryGetCustomerOrder = contract.try_getCustomerOrder(event.params.orderId, Address.fromString(customer.id));
                 if (!tryGetCustomerOrder.reverted) {
 
@@ -287,6 +287,19 @@ export function handleOrderPaidOut(event: OrderPaidOut): void {
 
                 customerOrderPaymentHistory.save();
 
+                let successfulPaymentId = event.params.orderId.toString().concat("-").concat(customer.id).concat("-").concat(event.transaction.hash.toHexString());
+                let successfulPayment = new SuccessfulPayment(successfulPaymentId);
+                successfulPayment.customer = customer.id;
+                successfulPayment.merchant = order.merchant;
+                successfulPayment.customerOrder = customerOrder.id;
+                successfulPayment.order = order.id;
+                successfulPayment.txHash = event.transaction.hash;
+                successfulPayment.timestamp = event.block.timestamp;
+                successfulPayment.amount =  event.params.amount;
+                successfulPayment.tokenSymbol = ERC20Token.load(order.erc20)!.symbol;
+                successfulPayment.description = `Successful Payment made for ${order.chargePerInterval} ${ERC20Token.load(order.erc20)!.symbol} (${ERC20Token.load(order.erc20)!.name}) Tokens from ${customer.id} to ${order.merchant}`;
+                successfulPayment.save();
+
                 customerOrder.numberOfPaymentsInHistory = customerOrder.numberOfPaymentsInHistory.plus(BigInt.fromI32(1))
                 customerOrder.save();
 
@@ -295,7 +308,7 @@ export function handleOrderPaidOut(event: OrderPaidOut): void {
                 let approvalAndBalance = CustomerERC20ApprovalAndBalance.load(approvalAndBalanceId);
                 if (approvalAndBalance) {
                     const erc20Contract = ERC20.bind(Address.fromString(order.erc20));
-                    let tryAllowance = erc20Contract.try_allowance(Address.fromString(customer.id), Address.fromString(polygonAddress));
+                    let tryAllowance = erc20Contract.try_allowance(Address.fromString(customer.id), Address.fromString(subsAddress));
                     if (!tryAllowance.reverted) {
                         approvalAndBalance.currentAllowance = tryAllowance.value;
                     }
@@ -326,7 +339,7 @@ export function handleOrderPaidOutGasSavingMode (event: OrderPaidOutGasSavingMod
             let customerOrder = CustomerOrder.load(customerOrderId);  //# orderId - customer Eth address
             if(customerOrder) {
                 // TODO this block, update the order
-                const contract = SubscriptionApp.bind(Address.fromString(polygonAddress));
+                const contract = SubscriptionApp.bind(Address.fromString(subsAddress));
                 let tryGetCustomerOrder = contract.try_getCustomerOrder(event.params.orderId, Address.fromString(customer.id));
                 if (!tryGetCustomerOrder.reverted) {
                     customerOrder.approvedPeriodsRemaining = tryGetCustomerOrder.value.value1;
@@ -390,6 +403,19 @@ export function handleOrderPaidOutGasSavingMode (event: OrderPaidOutGasSavingMod
 
                 customerOrderPaymentHistory.save();
 
+                let successfulPaymentId = event.params.orderId.toString().concat("-").concat(customer.id).concat("-").concat(event.transaction.hash.toHexString());
+                let successfulPayment = new SuccessfulPayment(successfulPaymentId);
+                successfulPayment.customer = customer.id;
+                successfulPayment.merchant = order.merchant;
+                successfulPayment.customerOrder = customerOrder.id;
+                successfulPayment.order = order.id;
+                successfulPayment.txHash = event.transaction.hash;
+                successfulPayment.timestamp = event.block.timestamp;
+                successfulPayment.amount =  event.params.amount;
+                successfulPayment.tokenSymbol = ERC20Token.load(order.erc20)!.symbol;
+                successfulPayment.description = `Successful Payment made for ${order.chargePerInterval} ${ERC20Token.load(order.erc20)!.symbol} (${ERC20Token.load(order.erc20)!.name}) Tokens from ${customer.id} to ${order.merchant}`;
+                successfulPayment.save();
+
                 customerOrder.numberOfPaymentsInHistory = customerOrder.numberOfPaymentsInHistory.plus(BigInt.fromI32(1))
                 customerOrder.save();
 
@@ -398,7 +424,7 @@ export function handleOrderPaidOutGasSavingMode (event: OrderPaidOutGasSavingMod
                 let approvalAndBalance = CustomerERC20ApprovalAndBalance.load(approvalAndBalanceId);
                 if (approvalAndBalance) {
                     const erc20Contract = ERC20.bind(Address.fromString(order.erc20));
-                    let tryAllowance = erc20Contract.try_allowance(Address.fromString(customer.id), Address.fromString(polygonAddress));
+                    let tryAllowance = erc20Contract.try_allowance(Address.fromString(customer.id), Address.fromString(subsAddress));
                     if (!tryAllowance.reverted) {
                         approvalAndBalance.currentAllowance = tryAllowance.value;
                     }
@@ -450,7 +476,7 @@ export function handleOrderRenewed(event: OrderRenewed): void {
                     customerOrderPaymentHistory.description = `Payment made for ${order.chargePerInterval} ${ERC20Token.load(order.erc20)!.symbol} (${ERC20Token.load(order.erc20)!.name}) Tokens from ${customer.id} to ${order.merchant} without gas savings mode`;
                     customerOrderPaymentHistory.feePercentage = BigInt.fromI32(0);
                     customerOrderPaymentHistory.gasSaving = false;
-                    const contract = SubscriptionApp.bind(Address.fromString(polygonAddress));
+                    const contract = SubscriptionApp.bind(Address.fromString(subsAddress));
                     let tryFee = contract.try_platformFee(Address.fromString(order.merchant));
                     if (!tryFee.reverted) {
                         customerOrderPaymentHistory.feePercentage = tryFee.value;
@@ -480,7 +506,7 @@ export function handleOrderRenewed(event: OrderRenewed): void {
                         approvalAndBalance.customer = customer.id;
                     }
                     const erc20Contract = ERC20.bind(Address.fromString(order.erc20));
-                    let tryAllowance = erc20Contract.try_allowance(Address.fromString(customer.id), Address.fromString(polygonAddress));
+                    let tryAllowance = erc20Contract.try_allowance(Address.fromString(customer.id), Address.fromString(subsAddress));
                     if (!tryAllowance.reverted) {
                         approvalAndBalance.currentAllowance = tryAllowance.value;
                     }
@@ -502,7 +528,7 @@ export function handleOrderRenewed(event: OrderRenewed): void {
                     let approvalAndBalance = CustomerERC20ApprovalAndBalance.load(approvalAndBalanceId);
                     if (approvalAndBalance) {
                         const erc20Contract = ERC20.bind(Address.fromString(order.erc20));
-                        let tryAllowance = erc20Contract.try_allowance(Address.fromString(customer.id), Address.fromString(polygonAddress));
+                        let tryAllowance = erc20Contract.try_allowance(Address.fromString(customer.id), Address.fromString(subsAddress));
                         if (!tryAllowance.reverted) {
                             approvalAndBalance.currentAllowance = tryAllowance.value;
                         }
@@ -543,30 +569,34 @@ export function handleOrderPaused(event: OrderPaused): void {
 }
 
 // This gets called on order paid out
-export function handleSuccessfulPay(event: SuccessfulPay): void {
-    let customer = Customer.load(event.params.customer.toHexString());
-    if(customer) {
-        let order = Order.load(event.params.orderId.toString());
-        if (order) {
-            let customerOrderId = event.params.orderId.toString().concat("-").concat(customer.id);
-            let customerOrder = CustomerOrder.load(customerOrderId);
-            if(customerOrder) {
-                let successfulPaymentId = event.params.orderId.toString().concat("-").concat(customer.id).concat("-").concat(event.transaction.hash.toHexString());
-                let successfulPayment = new SuccessfulPayment(successfulPaymentId);
-                successfulPayment.customer = customer.id;
-                successfulPayment.merchant = order.merchant;
-                successfulPayment.customerOrder = customerOrder.id;
-                successfulPayment.order = order.id;
-                successfulPayment.txHash = event.transaction.hash;
-                successfulPayment.timestamp = event.block.timestamp;
-                successfulPayment.amount =  order.chargePerInterval;
-                successfulPayment.tokenSymbol = ERC20Token.load(order.erc20)!.symbol;
-                successfulPayment.description = `Successful Payment made for ${order.chargePerInterval} ${ERC20Token.load(order.erc20)!.symbol} (${ERC20Token.load(order.erc20)!.name}) Tokens from ${customer.id} to ${order.merchant}`;
-                successfulPayment.save();
-            }
-        }
-    }
-}
+ export function handleSuccessfulPay(event: SuccessfulPay): void {
+     let customer = Customer.load(event.params.customer.toHexString());
+     if(customer) {
+         let order = Order.load(event.params.orderId.toString());
+         if (order) {
+             let customerOrderId = event.params.orderId.toString().concat("-").concat(customer.id);
+             let customerOrder = CustomerOrder.load(customerOrderId);
+             if(customerOrder) {
+                 let successfulPaymentId = event.params.orderId.toString().concat("-").concat(customer.id).concat("-").concat(event.transaction.hash.toHexString());
+
+                 log.info("Successful payment done with id {}", [
+                     successfulPaymentId,
+                 ]);
+//                 let successfulPayment = new SuccessfulPayment(successfulPaymentId);
+//                 successfulPayment.customer = customer.id;
+//                 successfulPayment.merchant = order.merchant;
+//                 successfulPayment.customerOrder = customerOrder.id;
+//                 successfulPayment.order = order.id;
+//                 successfulPayment.txHash = event.transaction.hash;
+//                 successfulPayment.timestamp = event.block.timestamp;
+//                 successfulPayment.amount =  order.chargePerInterval;
+//                 successfulPayment.tokenSymbol = ERC20Token.load(order.erc20)!.symbol;
+//                 successfulPayment.description = `Successful Payment made for ${order.chargePerInterval} ${ERC20Token.load(order.erc20)!.symbol} (${ERC20Token.load(order.erc20)!.name}) Tokens from ${customer.id} to ${order.merchant}`;
+//                 successfulPayment.save();
+             }
+         }
+     }
+ }
 
 export function handlePaymentFailure(event: PaymentFailure): void {
     let customer = Customer.load(event.params.customer.toHexString());
