@@ -1,5 +1,85 @@
 pragma solidity ^0.8.15;
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+
+//
+// OpenZeppelin Contracts (last updated v4.6.0) (token/ERC20/IERC20.sol)
+/**
+ * @dev Interface of the ERC20 standard as defined in the EIP.
+ */
+interface IERC20 {
+    /**
+     * @dev Emitted when `value` tokens are moved from one account (`from`) to
+     * another (`to`).
+     *
+     * Note that `value` may be zero.
+     */
+    event Transfer(address indexed from, address indexed to, uint256 value);
+
+    /**
+     * @dev Emitted when the allowance of a `spender` for an `owner` is set by
+     * a call to {approve}. `value` is the new allowance.
+     */
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+
+    /**
+     * @dev Returns the amount of tokens in existence.
+     */
+    function totalSupply() external view returns (uint256);
+
+    /**
+     * @dev Returns the amount of tokens owned by `account`.
+     */
+    function balanceOf(address account) external view returns (uint256);
+
+    /**
+     * @dev Moves `amount` tokens from the caller's account to `to`.
+     *
+     * Returns a boolean value indicating whether the operation succeeded.
+     *
+     * Emits a {Transfer} event.
+     */
+    function transfer(address to, uint256 amount) external returns (bool);
+
+    /**
+     * @dev Returns the remaining number of tokens that `spender` will be
+     * allowed to spend on behalf of `owner` through {transferFrom}. This is
+     * zero by default.
+     *
+     * This value changes when {approve} or {transferFrom} are called.
+     */
+    function allowance(address owner, address spender) external view returns (uint256);
+
+    /**
+     * @dev Sets `amount` as the allowance of `spender` over the caller's tokens.
+     *
+     * Returns a boolean value indicating whether the operation succeeded.
+     *
+     * IMPORTANT: Beware that changing an allowance with this method brings the risk
+     * that someone may use both the old and the new allowance by unfortunate
+     * transaction ordering. One possible solution to mitigate this race
+     * condition is to first reduce the spender's allowance to 0 and set the
+     * desired value afterwards:
+     * https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+     *
+     * Emits an {Approval} event.
+     */
+    function approve(address spender, uint256 amount) external returns (bool);
+
+    /**
+     * @dev Moves `amount` tokens from `from` to `to` using the
+     * allowance mechanism. `amount` is then deducted from the caller's
+     * allowance.
+     *
+     * Returns a boolean value indicating whether the operation succeeded.
+     *
+     * Emits a {Transfer} event.
+     */
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool);
+}
 
 library BokkyPooBahsDateTimeLibrary {
 
@@ -36,11 +116,11 @@ library BokkyPooBahsDateTimeLibrary {
         int _day = int(day);
 
         int __days = _day
-          - 32075
-          + 1461 * (_year + 4800 + (_month - 14) / 12) / 4
-          + 367 * (_month - 2 - (_month - 14) / 12 * 12) / 12
-          - 3 * ((_year + 4900 + (_month - 14) / 12) / 100) / 4
-          - OFFSET19700101;
+        - 32075
+        + 1461 * (_year + 4800 + (_month - 14) / 12) / 4
+        + 367 * (_month - 2 - (_month - 14) / 12 * 12) / 12
+        - 3 * ((_year + 4900 + (_month - 14) / 12) / 100) / 4
+        - OFFSET19700101;
 
         _days = uint(__days);
     }
@@ -81,62 +161,11 @@ library BokkyPooBahsDateTimeLibrary {
         day = uint(_day);
     }
 
-//    function timestampFromDate(uint year, uint month, uint day) internal pure returns (uint timestamp) {
-//        timestamp = _daysFromDate(year, month, day) * SECONDS_PER_DAY;
-//    }
-//    function timestampFromDateTime(uint year, uint month, uint day, uint hour, uint minute, uint second) internal pure returns (uint timestamp) {
-//        timestamp = _daysFromDate(year, month, day) * SECONDS_PER_DAY + hour * SECONDS_PER_HOUR + minute * SECONDS_PER_MINUTE + second;
-//    }
-//    function timestampToDate(uint timestamp) internal pure returns (uint year, uint month, uint day) {
-//        (year, month, day) = _daysToDate(timestamp / SECONDS_PER_DAY);
-//    }
-//    function timestampToDateTime(uint timestamp) internal pure returns (uint year, uint month, uint day, uint hour, uint minute, uint second) {
-//        (year, month, day) = _daysToDate(timestamp / SECONDS_PER_DAY);
-//        uint secs = timestamp % SECONDS_PER_DAY;
-//        hour = secs / SECONDS_PER_HOUR;
-//        secs = secs % SECONDS_PER_HOUR;
-//        minute = secs / SECONDS_PER_MINUTE;
-//        second = secs % SECONDS_PER_MINUTE;
-//    }
-//
-//    function isValidDate(uint year, uint month, uint day) internal pure returns (bool valid) {
-//        if (year >= 1970 && month > 0 && month <= 12) {
-//            uint daysInMonth = _getDaysInMonth(year, month);
-//            if (day > 0 && day <= daysInMonth) {
-//                valid = true;
-//            }
-//        }
-//    }
-//    function isValidDateTime(uint year, uint month, uint day, uint hour, uint minute, uint second) internal pure returns (bool valid) {
-//        if (isValidDate(year, month, day)) {
-//            if (hour < 24 && minute < 60 && second < 60) {
-//                valid = true;
-//            }
-//        }
-//    }
-//    function isLeapYear(uint timestamp) internal pure returns (bool leapYear) {
-//        uint year;
-//        uint month;
-//        uint day;
-//        (year, month, day) = _daysToDate(timestamp / SECONDS_PER_DAY);
-//        leapYear = _isLeapYear(year);
-//    }
+
     function _isLeapYear(uint year) internal pure returns (bool leapYear) {
         leapYear = ((year % 4 == 0) && (year % 100 != 0)) || (year % 400 == 0);
     }
-//    function isWeekDay(uint timestamp) internal pure returns (bool weekDay) {
-//        weekDay = getDayOfWeek(timestamp) <= DOW_FRI;
-//    }
-//    function isWeekEnd(uint timestamp) internal pure returns (bool weekEnd) {
-//        weekEnd = getDayOfWeek(timestamp) >= DOW_SAT;
-//    }
-//    function getDaysInMonth(uint timestamp) internal pure returns (uint daysInMonth) {
-//        uint year;
-//        uint month;
-//        uint day;
-//        (year, month, day) = _daysToDate(timestamp / SECONDS_PER_DAY);
-//        daysInMonth = _getDaysInMonth(year, month);
-//    }
+
     function _getDaysInMonth(uint year, uint month) internal pure returns (uint daysInMonth) {
         if (month == 1 || month == 3 || month == 5 || month == 7 || month == 8 || month == 10 || month == 12) {
             daysInMonth = 31;
@@ -146,39 +175,8 @@ library BokkyPooBahsDateTimeLibrary {
             daysInMonth = _isLeapYear(year) ? 29 : 28;
         }
     }
-//    // 1 = Monday, 7 = Sunday
-//    function getDayOfWeek(uint timestamp) internal pure returns (uint dayOfWeek) {
-//        uint _days = timestamp / SECONDS_PER_DAY;
-//        dayOfWeek = (_days + 3) % 7 + 1;
-//    }
-//
-//    function getYear(uint timestamp) internal pure returns (uint year) {
-//        uint month;
-//        uint day;
-//        (year, month, day) = _daysToDate(timestamp / SECONDS_PER_DAY);
-//    }
-//    function getMonth(uint timestamp) internal pure returns (uint month) {
-//        uint year;
-//        uint day;
-//        (year, month, day) = _daysToDate(timestamp / SECONDS_PER_DAY);
-//    }
-//    function getDay(uint timestamp) internal pure returns (uint day) {
-//        uint year;
-//        uint month;
-//        (year, month, day) = _daysToDate(timestamp / SECONDS_PER_DAY);
-//    }
-//    function getHour(uint timestamp) internal pure returns (uint hour) {
-//        uint secs = timestamp % SECONDS_PER_DAY;
-//        hour = secs / SECONDS_PER_HOUR;
-//    }
-//    function getMinute(uint timestamp) internal pure returns (uint minute) {
-//        uint secs = timestamp % SECONDS_PER_HOUR;
-//        minute = secs / SECONDS_PER_MINUTE;
-//    }
-//    function getSecond(uint timestamp) internal pure returns (uint second) {
-//        second = timestamp % SECONDS_PER_MINUTE;
-//    }
-//
+
+    //
     function addYears(uint timestamp, uint _years) internal pure returns (uint newTimestamp) {
         uint year;
         uint month;
@@ -207,67 +205,7 @@ library BokkyPooBahsDateTimeLibrary {
         newTimestamp = _daysFromDate(year, month, day) * SECONDS_PER_DAY + timestamp % SECONDS_PER_DAY;
         require(newTimestamp >= timestamp);
     }
-//    function addDays(uint timestamp, uint _days) external view pure returns (uint newTimestamp) {
-//        newTimestamp = timestamp + _days * SECONDS_PER_DAY;
-//        require(newTimestamp >= timestamp);
-//    }
-//    function addHours(uint timestamp, uint _hours) internal pure returns (uint newTimestamp) {
-//        newTimestamp = timestamp + _hours * SECONDS_PER_HOUR;
-//        require(newTimestamp >= timestamp);
-//    }
-//    function addMinutes(uint timestamp, uint _minutes) internal pure returns (uint newTimestamp) {
-//        newTimestamp = timestamp + _minutes * SECONDS_PER_MINUTE;
-//        require(newTimestamp >= timestamp);
-//    }
-//    function addSeconds(uint timestamp, uint _seconds) internal pure returns (uint newTimestamp) {
-//        newTimestamp = timestamp + _seconds;
-//        require(newTimestamp >= timestamp);
-//    }
-//
-//    function subYears(uint timestamp, uint _years) internal pure returns (uint newTimestamp) {
-//        uint year;
-//        uint month;
-//        uint day;
-//        (year, month, day) = _daysToDate(timestamp / SECONDS_PER_DAY);
-//        year -= _years;
-//        uint daysInMonth = _getDaysInMonth(year, month);
-//        if (day > daysInMonth) {
-//            day = daysInMonth;
-//        }
-//        newTimestamp = _daysFromDate(year, month, day) * SECONDS_PER_DAY + timestamp % SECONDS_PER_DAY;
-//        require(newTimestamp <= timestamp);
-//    }
-//    function subMonths(uint timestamp, uint _months) internal pure returns (uint newTimestamp) {
-//        uint year;
-//        uint month;
-//        uint day;
-//        (year, month, day) = _daysToDate(timestamp / SECONDS_PER_DAY);
-//        uint yearMonth = year * 12 + (month - 1) - _months;
-//        year = yearMonth / 12;
-//        month = yearMonth % 12 + 1;
-//        uint daysInMonth = _getDaysInMonth(year, month);
-//        if (day > daysInMonth) {
-//            day = daysInMonth;
-//        }
-//        newTimestamp = _daysFromDate(year, month, day) * SECONDS_PER_DAY + timestamp % SECONDS_PER_DAY;
-//        require(newTimestamp <= timestamp);
-//    }
-//    function subDays(uint timestamp, uint _days) internal pure returns (uint newTimestamp) {
-//        newTimestamp = timestamp - _days * SECONDS_PER_DAY;
-//        require(newTimestamp <= timestamp);
-//    }
-//    function subHours(uint timestamp, uint _hours) internal pure returns (uint newTimestamp) {
-//        newTimestamp = timestamp - _hours * SECONDS_PER_HOUR;
-//        require(newTimestamp <= timestamp);
-//    }
-//    function subMinutes(uint timestamp, uint _minutes) internal pure returns (uint newTimestamp) {
-//        newTimestamp = timestamp - _minutes * SECONDS_PER_MINUTE;
-//        require(newTimestamp <= timestamp);
-//    }
-//    function subSeconds(uint timestamp, uint _seconds) internal pure returns (uint newTimestamp) {
-//        newTimestamp = timestamp - _seconds;
-//        require(newTimestamp <= timestamp);
-//    }
+
 
     function diffYears(uint fromTimestamp, uint toTimestamp) internal pure returns (uint _years) {
         require(fromTimestamp <= toTimestamp);
@@ -310,7 +248,6 @@ library BokkyPooBahsDateTimeLibrary {
         _seconds = toTimestamp - fromTimestamp;
     }
 }
-
 
 /**
  * @dev Interface of the ERC165 standard, as defined in the
@@ -409,6 +346,7 @@ contract SubscriptionApp {
 
     event MerchantWithdrawERC20(address erc20, address merchant, uint256 value);
     event OwnerWithdrawERC20(address erc20, uint256 value);
+    event ChangeOwner(address newOwner);
 
     // Structs
 
@@ -465,7 +403,9 @@ contract SubscriptionApp {
     }
 
     function changeOwner(address newOwner) public onlyOwner {
+        require(newOwner != address(0), 'Cannot change owner to 0');
         owner = newOwner;
+        emit ChangeOwner(newOwner);
     }
 
     function changeDefaultTotalIntervals(uint _defaultTotalIntervals) public onlyOwner {
@@ -558,30 +498,30 @@ contract SubscriptionApp {
     }
 
     function getCustomerOrder(uint256 _orderId, address _customer) external view returns
-            (address customer,
-            uint256 approvedPeriodsRemaining, // This number is based on the registration, it is default 36 months of reg
-            uint256 firstPaymentMadeTimestamp,
-            uint256 numberOfIntervalsPaid,
-            bool terminated,
-            uint256 amountPaidToDate){
-            CustomerOrder storage order = orders[_orderId].customerOrders[_customer];
-            return (
-                order.customer,
-                order.approvedPeriodsRemaining,
-                order.firstPaymentMadeTimestamp,
-                order.numberOfIntervalsPaid,
-                order.terminated,
-                order.amountPaidToDate
-            );
+    (address customer,
+        uint256 approvedPeriodsRemaining, // This number is based on the registration, it is default 36 months of reg
+        uint256 firstPaymentMadeTimestamp,
+        uint256 numberOfIntervalsPaid,
+        bool terminated,
+        uint256 amountPaidToDate){
+        CustomerOrder storage order = orders[_orderId].customerOrders[_customer];
+        return (
+        order.customer,
+        order.approvedPeriodsRemaining,
+        order.firstPaymentMadeTimestamp,
+        order.numberOfIntervalsPaid,
+        order.terminated,
+        order.amountPaidToDate
+        );
     }
 
     function getPaymentHistoryEntry(uint256 _orderId, address _customer, uint256 _index) external view returns
-            (uint256 timestamp, uint256 amount, uint256 feePercentage){
-            return (
-                customerHistoryTimestamps[_orderId][_customer][_index],
-                customerHistoryAmounts[_orderId][_customer][_index],
-                customerHistoryFeePercentages[_orderId][_customer][_index]
-            );
+    (uint256 timestamp, uint256 amount, uint256 feePercentage){
+        return (
+        customerHistoryTimestamps[_orderId][_customer][_index],
+        customerHistoryAmounts[_orderId][_customer][_index],
+        customerHistoryFeePercentages[_orderId][_customer][_index]
+        );
     }
 
     function setMerchantDefaultNumberOfOrderIntervals(uint256 orderId, uint256 _defaultNumberOfOrderIntervals) external{
@@ -615,8 +555,12 @@ contract SubscriptionApp {
         require(IERC20(order.erc20).allowance(msg.sender, address(this)) >= order.chargePerInterval, "Insufficient erc20 allowance");
         require(IERC20(order.erc20).balanceOf(msg.sender) >= order.chargePerInterval, "Insufficient balance first month");
 
-        IERC20(order.erc20).transferFrom(msg.sender, owner, calculateFee);
-        IERC20(order.erc20).transferFrom(msg.sender, order.merchant, (order.chargePerInterval - calculateFee));
+
+        (bool successFee) = IERC20(order.erc20).transferFrom(msg.sender, owner, calculateFee);
+        require(successFee, "Fee transfer has failed");
+
+        (bool successMerchant) = IERC20(order.erc20).transferFrom(msg.sender, order.merchant, (order.chargePerInterval - calculateFee));
+        require(successMerchant, "Merchant transfer has failed");
 
         // Update customer histories
         customerHistoryTimestamps[_orderId][msg.sender].push(_getNow());
@@ -624,13 +568,13 @@ contract SubscriptionApp {
         customerHistoryFeePercentages[_orderId][msg.sender].push(platformFee(order.merchant));
 
         order.customerOrders[msg.sender] = CustomerOrder({
-                customer: msg.sender,
-                approvedPeriodsRemaining: _approvedPeriods,
-                terminated: false,
-                amountPaidToDate: order.chargePerInterval,
-                firstPaymentMadeTimestamp: _getNow(),
-                numberOfIntervalsPaid: 1
-            });
+        customer: msg.sender,
+        approvedPeriodsRemaining: _approvedPeriods,
+        terminated: false,
+        amountPaidToDate: order.chargePerInterval,
+        firstPaymentMadeTimestamp: _getNow(),
+        numberOfIntervalsPaid: 1
+        });
 
 
         emit OrderAccepted(
@@ -664,7 +608,7 @@ contract SubscriptionApp {
         }
     }
 
-    function _processPayment(uint256 _orderId, address _customer, bool _gasSavingMode) internal returns (bool success, string memory revert, bytes memory revertData) {
+    function _processPayment(uint256 _orderId, address _customer, bool _gasSavingMode) internal returns (bool success, string memory revertCause, bytes memory revertData) {
         Order storage order = orders[_orderId];
         uint256 howManyIntervalsToPay = _howManyIntervalsToPay(order, _customer);
         if(howManyIntervalsToPay > order.customerOrders[_customer].approvedPeriodsRemaining){
@@ -737,34 +681,39 @@ contract SubscriptionApp {
     }
 
     function payOutMerchantAndFeesInternalMethod(
-                address _customer,
-                uint256 howMuchERC20ToSend,
-                uint256 calculateFee,
-                bool orderPaused,
-                bool terminated,
-                address orderMerchant,
-                address orderErc20) external {
+        address _customer,
+        uint256 howMuchERC20ToSend,
+        uint256 calculateFee,
+        bool orderPaused,
+        bool terminated,
+        address orderMerchant,
+        address orderErc20) external {
         require(msg.sender == address(this), "Internal calls only");
         require(!orderPaused, "Cannot process, this order is paused");
         require(!terminated, "This payment has been cancelled");
         require(IERC20(orderErc20).allowance(_customer, address(this)) >= howMuchERC20ToSend, "Insufficient erc20 allowance");
         require(IERC20(orderErc20).balanceOf(_customer) >= howMuchERC20ToSend, "Insufficient balance");
-        IERC20(orderErc20).transferFrom(_customer, owner, calculateFee);
-        IERC20(orderErc20).transferFrom(_customer, orderMerchant, (howMuchERC20ToSend - calculateFee));
+
+        (bool successFee) = IERC20(orderErc20).transferFrom(_customer, owner, calculateFee);
+        require(successFee, "Fee transfer has failed");
+
+        (bool successMerchant) = IERC20(orderErc20).transferFrom(_customer, orderMerchant, (howMuchERC20ToSend - calculateFee));
+        require(successMerchant, "Merchant transfer has failed");
     }
 
     function payOutGasSavingInternalMethod(
-                address _customer,
-                uint256 howMuchERC20ToSend,
-                bool orderPaused,
-                bool terminated,
-                address orderErc20) external {
+        address _customer,
+        uint256 howMuchERC20ToSend,
+        bool orderPaused,
+        bool terminated,
+        address orderErc20) external {
         require(msg.sender == address(this), "Internal calls only");
         require(!orderPaused, "Cannot process, this order is paused");
         require(!terminated, "This payment has been cancelled");
         require(IERC20(orderErc20).allowance(_customer, address(this)) >= howMuchERC20ToSend, "Insufficient erc20 allowance");
         require(IERC20(orderErc20).balanceOf(_customer) >= howMuchERC20ToSend, "Insufficient balance");
-        IERC20(orderErc20).transferFrom(_customer, address(this), howMuchERC20ToSend);
+        (bool successPayment) = IERC20(orderErc20).transferFrom(_customer, address(this), howMuchERC20ToSend);
+        require(successPayment, 'Token transfer unsuccessful');
     }
 
     // Check how much erc20 amount is ready for payment
@@ -836,8 +785,11 @@ contract SubscriptionApp {
             require(IERC20(order.erc20).balanceOf(msg.sender) >= order.chargePerInterval, "Insufficient balance first month");
 
             uint256 calculateFee = (order.chargePerInterval * platformFee(order.merchant)) / (1000);
-            IERC20(order.erc20).transferFrom(msg.sender, owner, calculateFee);
-            IERC20(order.erc20).transferFrom(msg.sender, order.merchant, (order.chargePerInterval - calculateFee));
+
+            (bool successFee) = IERC20(order.erc20).transferFrom(msg.sender, owner, calculateFee);
+            require(successFee, 'Fee transfer erc20 failed');
+            (bool successMerchant) = IERC20(order.erc20).transferFrom(msg.sender, order.merchant, (order.chargePerInterval - calculateFee));
+            require(successMerchant, 'Merchant transfer erc20 failed');
 
             // Update customer histories
             customerHistoryTimestamps[_orderId][msg.sender].push(_getNow());
@@ -851,20 +803,20 @@ contract SubscriptionApp {
             customerOrder.amountPaidToDate = customerOrder.amountPaidToDate + order.chargePerInterval;
 
             emit OrderRenewed(
-                    _orderId,
-                    msg.sender,
-                    _getNow(),
-                    _approvedPeriods,
-                    true);
+                _orderId,
+                msg.sender,
+                _getNow(),
+                _approvedPeriods,
+                true);
         } else {
             customerOrder.approvedPeriodsRemaining = customerOrder.approvedPeriodsRemaining + _approvedPeriods;
 
             emit OrderRenewed(
-                    _orderId,
-                    msg.sender,
-                    customerOrder.firstPaymentMadeTimestamp,
-                    _approvedPeriods,
-                    false);
+                _orderId,
+                msg.sender,
+                customerOrder.firstPaymentMadeTimestamp,
+                _approvedPeriods,
+                false);
         }
     }
 
@@ -888,17 +840,25 @@ contract SubscriptionApp {
         uint256 value = 0;
         if(msg.sender == owner){
             value = pendingOwnerWithdrawalAmountByToken[_erc20Token];
-            IERC20(_erc20Token).transfer(
-                    owner,
-                    value);
+
             pendingOwnerWithdrawalAmountByToken[_erc20Token] = 0;
+
+            (bool successWithdraw) = IERC20(_erc20Token).transfer(
+                owner,
+                value);
+            require(successWithdraw, 'ERC20 Withdrawal was unsuccessful');
+
             emit OwnerWithdrawERC20(_erc20Token, value);
         } else {
             value = pendingMerchantWithdrawalAmountByMerchantAndToken[msg.sender][_erc20Token];
-            IERC20(_erc20Token).transfer(
-                    msg.sender,
-                    value);
+
             pendingMerchantWithdrawalAmountByMerchantAndToken[msg.sender][_erc20Token] = 0;
+
+            (bool successWithdraw) = IERC20(_erc20Token).transfer(
+                msg.sender,
+                value);
+            require(successWithdraw, 'ERC20 Withdrawal was unsuccessful');
+
             emit MerchantWithdrawERC20(_erc20Token, msg.sender, value);
         }
     }

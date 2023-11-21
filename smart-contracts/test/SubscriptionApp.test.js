@@ -47,13 +47,19 @@ contract('SubscriptionApp', (accounts) => {
 	});
 	describe('Basic tests and creating orders', () => {
 		it('successfully call subscriptionApp changeOwner', async () => {
-			await this.app.changeOwner('0x0000000000000000000000000000000000000000');
+			await this.app.changeOwner('0x0000000000000000000000000000000000000001');
 		});
 
 		it('successfully revert for change owner wrong owner subscriptionApp changeOwner', async () => {
 			await expectRevert(
-				this.app.changeOwner('0x0000000000000000000000000000000000000000', {from: anotherAccount}),
+				this.app.changeOwner('0x0000000000000000000000000000000000000001', {from: anotherAccount}),
 				"Caller is not the owner"
+			);
+		});
+		it('successfully revert for change owner 0 owner subscriptionApp changeOwner', async () => {
+			await expectRevert(
+				this.app.changeOwner('0x0000000000000000000000000000000000000000'),
+				"Cannot change owner to 0"
 			);
 		});
 

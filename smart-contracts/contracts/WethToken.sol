@@ -3,9 +3,9 @@ pragma solidity 0.6.12;
 import "./interfaces/IWETH.sol";
 
 contract WethToken is IWETH{
-    string public name     = "Wrapped Ether";
-    string public symbol   = "WETH";
-    uint8  public decimals = 18;
+    string public constant name = "Wrapped Ether";
+    string public constant symbol = "WETH";
+    uint8  public constant decimals = 18;
 
     event  Approval(address indexed src, address indexed guy, uint wad);
     event  Transfer(address indexed src, address indexed dst, uint wad);
@@ -18,7 +18,7 @@ contract WethToken is IWETH{
 
     constructor() public
     {
-        balanceOf[msg.sender] = 1560000000 * 10**18;
+        balanceOf[msg.sender] = 1560000000 ether;
     }
 
     function deposit() public override payable {
