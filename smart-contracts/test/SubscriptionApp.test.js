@@ -89,13 +89,13 @@ contract('SubscriptionApp', (accounts) => {
 			this.app = await SubscriptionAppReal.new({from: admin});
 			await this.app.initialize(platformFee);
 			// Try to create an order as well
-			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, 0,  {from: merchantUser});
 		});
 
 
 		it('successfully call to create an order by the merchant', async () => {
 			await this.app.setNowOverride(1);
-			const {receipt} = await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser});
+			const {receipt} = await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, 0, {from: merchantUser});
 			await expectEvent(receipt, 'OrderCreated', {
 				orderId: (new BN('0')),
 				merchant: merchantUser,
@@ -106,7 +106,7 @@ contract('SubscriptionApp', (accounts) => {
 				merchantDefaultNumberOfOrderIntervals: (new BN('36'))
 			});
 
-			const {orderId, merchant, chargePerInterval, startTime, intervalDuration, erc20, paused, merchantDefaultNumberOfOrderIntervals} = await this.app.getOrder(0);
+			const {orderId, merchant, chargePerInterval, startTime, intervalDuration, erc20, paused, merchantDefaultNumberOfOrderIntervals, trialIntervals} = await this.app.getOrder(0);
 
 			expect(orderId).to.be.bignumber.equal(new BN('0'));
 			expect(merchant).to.be.equal(merchantUser);
@@ -116,19 +116,20 @@ contract('SubscriptionApp', (accounts) => {
 			expect(erc20).to.be.equal(this.erc20.address);
 			expect(paused).to.be.equal(false);
 			expect(merchantDefaultNumberOfOrderIntervals).to.be.bignumber.equal(new BN('36'));
+			expect(trialIntervals).to.be.bignumber.equal(new BN('0'));
 		});
 
 		it('successfully call to create an order by the merchantUser and pause it', async () => {
-			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, 0, {from: merchantUser});
 			await this.app.setOrderPauseState(0, true, {from: merchantUser});
 		});
 
 		it('successfully call to create an order by the merchantUser and change its default number of intervals', async () => {
-			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, 0, {from: merchantUser});
 			await this.app.setMerchantDefaultNumberOfOrderIntervals(0, 10, {from: merchantUser});
 
 
-			const {orderId, merchant, chargePerInterval, startTime, intervalDuration, erc20, paused, merchantDefaultNumberOfOrderIntervals} = await this.app.getOrder(0);
+			const {orderId, merchant, chargePerInterval, startTime, intervalDuration, erc20, paused, merchantDefaultNumberOfOrderIntervals, trialIntervals} = await this.app.getOrder(0);
 
 			expect(orderId).to.be.bignumber.equal(new BN('0'));
 			expect(merchant).to.be.equal(merchantUser);
@@ -138,27 +139,28 @@ contract('SubscriptionApp', (accounts) => {
 			expect(erc20).to.be.equal(this.erc20.address);
 			expect(paused).to.be.equal(false);
 			expect(merchantDefaultNumberOfOrderIntervals).to.be.bignumber.equal(new BN('10'));
+			expect(trialIntervals).to.be.bignumber.equal(new BN('0'));
 		});
 
 		it('successfully call to create an order by the merchantUser and pause it by owner', async () => {
-			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, 0, {from: merchantUser});
 			await this.app.setOrderPauseState(0, true, {from: admin});
 		});
 
 		it('reverts when calling an order by the NOT the merchantUser to pause it', async () => {
-			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, 0, {from: merchantUser});
 			await expectRevert(
 				this.app.setOrderPauseState(0, true, {from: customerUser}),
 				"Only the merchant or owner can pause");
 		});
 		it('reverts if not a token contract', async () => {
 			await expectRevert(
-				this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, merchantUser, 36, {from: merchantUser}),
+				this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, merchantUser, 36, 0, {from: merchantUser}),
 				"ERC20 token not compatible");
 		});
 		it('reverts if 0 default periods', async () => {
 			await expectRevert(
-				this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 0, {from: merchantUser}),
+				this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 0, 0, {from: merchantUser}),
 				"Default number of intervals must be above 0");
 		});
 	});
@@ -166,7 +168,7 @@ contract('SubscriptionApp', (accounts) => {
 	describe('try to accept offer', () => {
 		beforeEach(async () => {
 			await this.app.setNowOverride(2);
-			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, cycleIntervalDuration, this.erc20.address, 36, 0, {from: merchantUser});
 
 			// The customer needs to approve this
 			await this.erc20.approve(this.app.address, 37 * chargeCustomerPerInterval, {from: customerUser}); // Approve 36 cycles of token transfers + 1st
@@ -627,7 +629,7 @@ contract('SubscriptionApp', (accounts) => {
 
 		it('Sends biweekly', async () => {
 			const biweekly = 4;
-			await this.app.createNewOrder(chargeCustomerPerInterval, biweekly, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, biweekly, this.erc20.address, 36, 0, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -654,7 +656,7 @@ contract('SubscriptionApp', (accounts) => {
 
 		it('Sends weekly', async () => {
 			const weekly = 5;
-			await this.app.createNewOrder(chargeCustomerPerInterval, weekly, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, weekly, this.erc20.address, 36, 0, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -681,7 +683,7 @@ contract('SubscriptionApp', (accounts) => {
 
 		it('Sends daily', async () => {
 			const daily = 6;
-			await this.app.createNewOrder(chargeCustomerPerInterval, daily, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, daily, this.erc20.address, 36, 0, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -708,7 +710,7 @@ contract('SubscriptionApp', (accounts) => {
 
 		it('Sends hourly', async () => {
 			const hourly = 7;
-			await this.app.createNewOrder(chargeCustomerPerInterval, hourly, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, hourly, this.erc20.address, 36, 0, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -735,7 +737,7 @@ contract('SubscriptionApp', (accounts) => {
 
 		it('Sends by minute', async () => {
 			const minute = 8;
-			await this.app.createNewOrder(chargeCustomerPerInterval, minute, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, minute, this.erc20.address, 36, 0, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -762,7 +764,7 @@ contract('SubscriptionApp', (accounts) => {
 
 		it('Sends by second', async () => {
 			const second = 9;
-			await this.app.createNewOrder(chargeCustomerPerInterval, second, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, second, this.erc20.address, 36, 0, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -787,9 +789,65 @@ contract('SubscriptionApp', (accounts) => {
 			expect(await this.erc20.balanceOf(merchantUser)).to.be.bignumber.equal(new BN(merchantShare * 15));
 		});
 
+		it('Test the trial with period in seconds', async () => {
+			const second = 9;
+			await this.app.createNewOrder(chargeCustomerPerInterval, second, this.erc20.address, 36, 8, {from: merchantUser});
+			await this.app.setNowOverride(3);
+			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
+			// Most important is make sure that the merchantUser and owner got their share
+			const ownerShare = chargeCustomerPerInterval * (platformFee / 1000);
+			const merchantShare = chargeCustomerPerInterval - ownerShare;
+
+			expect(await this.erc20.balanceOf(admin)).to.be.bignumber.equal(new BN('0'));//free
+			expect(await this.erc20.balanceOf(merchantUser)).to.be.bignumber.equal(new BN('0'));//free
+
+			// Payment after 7 seconds (7 cycles)
+			await this.app.setNowOverride(10);
+			await this.app.batchProcessPayment([0],[customerUser], false, {from:merchantUser});
+
+			expect(await this.erc20.balanceOf(admin)).to.be.bignumber.equal(new BN('0'));
+			expect(await this.erc20.balanceOf(merchantUser)).to.be.bignumber.equal(new BN('0'));
+
+			// 14 seconds in
+			await this.app.setNowOverride(17);
+			await this.app.batchProcessPayment([0],[customerUser], false, {from:merchantUser});
+
+			expect(await this.erc20.balanceOf(admin)).to.be.bignumber.equal(new BN(ownerShare * 7));
+			expect(await this.erc20.balanceOf(merchantUser)).to.be.bignumber.equal(new BN(merchantShare * 7));
+		});
+		it('Test the trial with period in seconds with gas saving mode', async () => {
+			const second = 9;
+			await this.app.createNewOrder(chargeCustomerPerInterval, second, this.erc20.address, 36, 8, {from: merchantUser});
+			await this.app.setNowOverride(3);
+			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
+			// Most important is make sure that the merchantUser and owner got their share
+			const ownerShare = chargeCustomerPerInterval * (platformFee / 1000);
+			const merchantShare = chargeCustomerPerInterval - ownerShare;
+
+			expect(await this.erc20.balanceOf(admin)).to.be.bignumber.equal(new BN('0'));//free
+			expect(await this.erc20.balanceOf(merchantUser)).to.be.bignumber.equal(new BN('0'));//free
+
+			// Payment after 7 seconds (7 cycles)
+			await this.app.setNowOverride(10);
+			await this.app.batchProcessPayment([0],[customerUser], true, {from:merchantUser});
+
+			expect(await this.erc20.balanceOf(admin)).to.be.bignumber.equal(new BN('0'));
+			expect(await this.erc20.balanceOf(merchantUser)).to.be.bignumber.equal(new BN('0'));
+
+			// 14 seconds in
+			await this.app.setNowOverride(17);
+			await this.app.batchProcessPayment([0],[customerUser], true, {from:merchantUser});
+
+			await this.app.withdraw(this.erc20.address, {from: merchantUser});
+			await this.app.withdraw(this.erc20.address, {from: admin});
+
+			expect(await this.erc20.balanceOf(admin)).to.be.bignumber.equal(new BN(ownerShare * 7));
+			expect(await this.erc20.balanceOf(merchantUser)).to.be.bignumber.equal(new BN(merchantShare * 7));
+		});
+
 		it('Sends yearly', async () => {
 			const yearly = 0;
-			await this.app.createNewOrder(chargeCustomerPerInterval, yearly, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, yearly, this.erc20.address, 36, 0, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -816,7 +874,7 @@ contract('SubscriptionApp', (accounts) => {
 
 		it('Sends semi-yearly', async () => {
 			const semiyearly = 1;
-			await this.app.createNewOrder(chargeCustomerPerInterval, semiyearly, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, semiyearly, this.erc20.address, 36, 0, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -843,7 +901,7 @@ contract('SubscriptionApp', (accounts) => {
 
 		it('Sends quarter-yearly', async () => {
 			const quarteryearly = 2;
-			await this.app.createNewOrder(chargeCustomerPerInterval, quarteryearly, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, quarteryearly, this.erc20.address, 36, 0, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			// Most important is make sure that the merchantUser and owner got their share
@@ -870,7 +928,7 @@ contract('SubscriptionApp', (accounts) => {
 
 		it('Call payment but insufficient allowance', async () => {
 			const quarteryearly = 2;
-			await this.app.createNewOrder(chargeCustomerPerInterval, quarteryearly, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, quarteryearly, this.erc20.address, 36, 0, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			await this.app.setNowOverride(56246403);
@@ -886,7 +944,7 @@ contract('SubscriptionApp', (accounts) => {
 
 		it('Call payment but insufficient balance', async () => {
 			const quarteryearly = 2;
-			await this.app.createNewOrder(chargeCustomerPerInterval, quarteryearly, this.erc20.address, 36, {from: merchantUser});
+			await this.app.createNewOrder(chargeCustomerPerInterval, quarteryearly, this.erc20.address, 36, 0, {from: merchantUser});
 			await this.app.setNowOverride(3);
 			await this.app.customerAcceptOrder(0, 0, {from: customerUser});
 			await this.app.setNowOverride(56246403);
@@ -919,7 +977,7 @@ contract('SubscriptionApp', (accounts) => {
 			await this.erc20.approve(this.app.address, enoughWeiToMakeTx, {from: customerUser}); // Approve 36 cycles of token transfers + 1st
 
 			for(let i=0; i<howManyPayments;i++) {
-				await this.app.createNewOrder(smallPayment, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser}); // 100,000 wei
+				await this.app.createNewOrder(smallPayment, cycleIntervalDuration, this.erc20.address, 36, 0, {from: merchantUser}); // 100,000 wei
 			}
 			await this.app.setNowOverride(3);
 			for(let i=0; i<howManyPayments;i++) {
@@ -943,7 +1001,7 @@ contract('SubscriptionApp', (accounts) => {
 			await this.erc20.approve(this.app.address, enoughWeiToMakeTx, {from: customerUser}); // Approve 36 cycles of token transfers + 1st
 
 			for(let i=0; i<howManyPayments;i++) {
-				await this.app.createNewOrder(smallPayment, cycleIntervalDuration, this.erc20.address, 36, {from: merchantUser}); // 100,000 wei
+				await this.app.createNewOrder(smallPayment, cycleIntervalDuration, this.erc20.address, 36, 0, {from: merchantUser}); // 100,000 wei
 			}
 			await this.app.setNowOverride(3);
 			for(let i=0; i<howManyPayments;i++) {

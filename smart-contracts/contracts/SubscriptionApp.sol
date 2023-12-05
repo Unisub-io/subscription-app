@@ -285,14 +285,16 @@ contract SubscriptionApp {
         uint256 startTime,
         uint256 intervalDuration,
         address erc20,
-        uint256 merchantDefaultNumberOfOrderIntervals
+        uint256 merchantDefaultNumberOfOrderIntervals,
+        uint256 trialIntervals
     );
 
     event OrderAccepted(
         uint256 orderId,
         address customer,
         uint256 startTime,
-        uint256 approvedPeriodsRemaining
+        uint256 approvedPeriodsRemaining,
+        uint256 trialIntervalsRemaining
     );
 
     event OrderPaidOut(
@@ -353,6 +355,7 @@ contract SubscriptionApp {
     struct CustomerOrder {
         address customer;
         uint256 approvedPeriodsRemaining; // This number is based on the registration, it is default 36 months of reg
+        uint256 trialIntervalsRemaining;
         uint256 firstPaymentMadeTimestamp;
         uint256 numberOfIntervalsPaid;
         bool terminated;
@@ -367,6 +370,7 @@ contract SubscriptionApp {
         uint256 intervalDuration;
         address erc20;
         bool paused;
+        uint256 trialIntervals;
         uint256 merchantDefaultNumberOfOrderIntervals;
         mapping(address => CustomerOrder) customerOrders;
     }
@@ -441,7 +445,9 @@ contract SubscriptionApp {
     /// @param _chargePerInterval Cost of the order every interval
     /// @param _intervalDuration The duration of the interval - seconds 9, minutes 8, hourly 7, daily 6, weekly 5, bi-weekly 4, monthly 3, quarter-year 2, bi-yearly 1, yearly 0
     /// @param _erc20 Address of the payment token
-    function createNewOrder(uint256 _chargePerInterval, uint256 _intervalDuration, IERC20 _erc20, uint256 _merchantDefaultNumberOfOrderIntervals) public {
+    /// @param _merchantDefaultNumberOfOrderIntervals Default number of intervals to approve
+    /// @param _trialIntervals Number of intervals that are free
+    function createNewOrder(uint256 _chargePerInterval, uint256 _intervalDuration, IERC20 _erc20, uint256 _merchantDefaultNumberOfOrderIntervals, uint256 _trialIntervals) public {
         require(_intervalDuration < 10, "Interval duration between 0 and 9");
         // Supports interface
         bool worked = false;
@@ -456,6 +462,7 @@ contract SubscriptionApp {
                     order.intervalDuration = _intervalDuration;
                     order.erc20 = address(_erc20);
                     order.paused = false;
+                    order.trialIntervals = _trialIntervals;
                     require(_merchantDefaultNumberOfOrderIntervals > 0, "Default number of intervals must be above 0");
                     order.merchantDefaultNumberOfOrderIntervals = _merchantDefaultNumberOfOrderIntervals;
 
@@ -466,7 +473,8 @@ contract SubscriptionApp {
                         order.startTime,
                         _intervalDuration,
                         address(_erc20),
-                        _merchantDefaultNumberOfOrderIntervals);
+                        _merchantDefaultNumberOfOrderIntervals,
+                        _trialIntervals);
 
                     nextOrder = nextOrder + 1;
                     worked = true;
@@ -483,7 +491,7 @@ contract SubscriptionApp {
     }
 
     function getOrder(uint256 _orderId) external view returns
-    (uint256 orderId, address merchant, uint256 chargePerInterval, uint256 startTime, uint256 intervalDuration, address erc20, bool paused, uint256 merchantDefaultNumberOfOrderIntervals){
+    (uint256 orderId, address merchant, uint256 chargePerInterval, uint256 startTime, uint256 intervalDuration, address erc20, bool paused, uint256 merchantDefaultNumberOfOrderIntervals, uint256 trialIntervals){
         Order storage order = orders[_orderId];
         return (
         order.orderId,
@@ -493,13 +501,15 @@ contract SubscriptionApp {
         order.intervalDuration,
         order.erc20,
         order.paused,
-        order.merchantDefaultNumberOfOrderIntervals
+        order.merchantDefaultNumberOfOrderIntervals,
+        order.trialIntervals
         );
     }
 
     function getCustomerOrder(uint256 _orderId, address _customer) external view returns
     (address customer,
         uint256 approvedPeriodsRemaining, // This number is based on the registration, it is default 36 months of reg
+        uint256 trialIntervalsRemaining,
         uint256 firstPaymentMadeTimestamp,
         uint256 numberOfIntervalsPaid,
         bool terminated,
@@ -508,6 +518,7 @@ contract SubscriptionApp {
         return (
         order.customer,
         order.approvedPeriodsRemaining,
+        order.trialIntervalsRemaining,
         order.firstPaymentMadeTimestamp,
         order.numberOfIntervalsPaid,
         order.terminated,
@@ -551,25 +562,37 @@ contract SubscriptionApp {
             _approvedPeriods = order.merchantDefaultNumberOfOrderIntervals;
         }
 
-        uint256 calculateFee = (order.chargePerInterval * platformFee(order.merchant)) / (1000);
-        require(IERC20(order.erc20).allowance(msg.sender, address(this)) >= order.chargePerInterval, "Insufficient erc20 allowance");
-        require(IERC20(order.erc20).balanceOf(msg.sender) >= order.chargePerInterval, "Insufficient balance first month");
+        uint256 trialPeriodsRemaining = order.trialIntervals;
+        if(trialPeriodsRemaining > 0){
+            trialPeriodsRemaining = order.trialIntervals - 1;
+            customerHistoryTimestamps[_orderId][msg.sender].push(_getNow());
+            customerHistoryAmounts[_orderId][msg.sender].push(uint256(0));
+            customerHistoryFeePercentages[_orderId][msg.sender].push(uint(0));
+        } else{
+            // Make payment if there is no free trial
+            uint256 calculateFee = (order.chargePerInterval * platformFee(order.merchant)) / (1000);
+            require(IERC20(order.erc20).allowance(msg.sender, address(this)) >= order.chargePerInterval, "Insufficient erc20 allowance");
+            require(IERC20(order.erc20).balanceOf(msg.sender) >= order.chargePerInterval, "Insufficient balance first month");
 
 
-        (bool successFee) = IERC20(order.erc20).transferFrom(msg.sender, owner, calculateFee);
-        require(successFee, "Fee transfer has failed");
+            (bool successFee) = IERC20(order.erc20).transferFrom(msg.sender, owner, calculateFee);
+            require(successFee, "Fee transfer has failed");
 
-        (bool successMerchant) = IERC20(order.erc20).transferFrom(msg.sender, order.merchant, (order.chargePerInterval - calculateFee));
-        require(successMerchant, "Merchant transfer has failed");
+            (bool successMerchant) = IERC20(order.erc20).transferFrom(msg.sender, order.merchant, (order.chargePerInterval - calculateFee));
+            require(successMerchant, "Merchant transfer has failed");
+            customerHistoryTimestamps[_orderId][msg.sender].push(_getNow());
+            customerHistoryAmounts[_orderId][msg.sender].push( order.chargePerInterval);
+            customerHistoryFeePercentages[_orderId][msg.sender].push(platformFee(order.merchant));
+        }
+
 
         // Update customer histories
-        customerHistoryTimestamps[_orderId][msg.sender].push(_getNow());
-        customerHistoryAmounts[_orderId][msg.sender].push( order.chargePerInterval);
-        customerHistoryFeePercentages[_orderId][msg.sender].push(platformFee(order.merchant));
+
 
         order.customerOrders[msg.sender] = CustomerOrder({
         customer: msg.sender,
         approvedPeriodsRemaining: _approvedPeriods,
+        trialIntervalsRemaining: trialPeriodsRemaining,
         terminated: false,
         amountPaidToDate: order.chargePerInterval,
         firstPaymentMadeTimestamp: _getNow(),
@@ -581,7 +604,8 @@ contract SubscriptionApp {
             _orderId,
             msg.sender,
             _getNow(),
-            _approvedPeriods);
+            _approvedPeriods,
+            trialPeriodsRemaining);
     }
 
     // @dev BatchProcessPayment
@@ -614,7 +638,15 @@ contract SubscriptionApp {
         if(howManyIntervalsToPay > order.customerOrders[_customer].approvedPeriodsRemaining){
             howManyIntervalsToPay = order.customerOrders[_customer].approvedPeriodsRemaining;
         }
-        uint256 howMuchERC20ToSend = howManyIntervalsToPay * order.chargePerInterval;
+
+        uint256 howManyIntervalsMinusTrialIntervals = 0;
+        if(howManyIntervalsToPay > order.customerOrders[_customer].trialIntervalsRemaining){
+            howManyIntervalsMinusTrialIntervals = howManyIntervalsToPay - order.customerOrders[_customer].trialIntervalsRemaining;
+        } else {
+            howManyIntervalsMinusTrialIntervals = 0;
+        }
+
+        uint256 howMuchERC20ToSend = howManyIntervalsMinusTrialIntervals * order.chargePerInterval;
         uint256 calculateFee = (howMuchERC20ToSend * platformFee(order.merchant)) / (1000);
         bool terminated = order.customerOrders[_customer].terminated;
 
@@ -624,6 +656,12 @@ contract SubscriptionApp {
             ) {
                 order.customerOrders[_customer].numberOfIntervalsPaid = order.customerOrders[_customer].numberOfIntervalsPaid + howManyIntervalsToPay;
                 order.customerOrders[_customer].approvedPeriodsRemaining = order.customerOrders[_customer].approvedPeriodsRemaining - howManyIntervalsToPay;
+                if(order.customerOrders[_customer].trialIntervalsRemaining >= howManyIntervalsToPay){
+                    order.customerOrders[_customer].trialIntervalsRemaining = order.customerOrders[_customer].trialIntervalsRemaining - howManyIntervalsToPay;
+                } else {
+                    order.customerOrders[_customer].trialIntervalsRemaining = 0;
+                }
+
                 order.customerOrders[_customer].amountPaidToDate = order.customerOrders[_customer].amountPaidToDate + howMuchERC20ToSend;
 
                 // Update customer histories
@@ -651,6 +689,11 @@ contract SubscriptionApp {
             ) {
                 order.customerOrders[_customer].numberOfIntervalsPaid = order.customerOrders[_customer].numberOfIntervalsPaid + howManyIntervalsToPay;
                 order.customerOrders[_customer].approvedPeriodsRemaining = order.customerOrders[_customer].approvedPeriodsRemaining - howManyIntervalsToPay;
+                if(order.customerOrders[_customer].trialIntervalsRemaining >= howManyIntervalsToPay){
+                    order.customerOrders[_customer].trialIntervalsRemaining = order.customerOrders[_customer].trialIntervalsRemaining - howManyIntervalsToPay;
+                } else {
+                    order.customerOrders[_customer].trialIntervalsRemaining = 0;
+                }
                 order.customerOrders[_customer].amountPaidToDate = order.customerOrders[_customer].amountPaidToDate + howMuchERC20ToSend;
 
                 // Update customer histories
@@ -829,6 +872,7 @@ contract SubscriptionApp {
             || (order.merchant == msg.sender), "Only the customer, merchant, or owner can cancel an order");
         order.customerOrders[_customer].terminated = true;
         order.customerOrders[_customer].approvedPeriodsRemaining = 0;
+        order.customerOrders[_customer].trialIntervalsRemaining = 0;
 
         emit OrderCancelled(
             _orderId,
