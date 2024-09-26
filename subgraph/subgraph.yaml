@@ -1,4 +1,4 @@
-specVersion: 0.0.3
+specVersion: 0.0.4
 description: SubscriptionApp
 repository: https://github.com/onigiri-x/subscription-app
 schema:
@@ -8,12 +8,12 @@ dataSources:
     name: SubscriptionApp
     network: "matic"
     source:
-      address: "0x5CF590F30236D6193626CAa02Dd4de9e2bBb3394"
+      address: "0xA5e2408D048Eb4ad52aA212Fc9Fd64F9e0054adb"
       abi: SubscriptionApp
-      startBlock: 38765351
+      startBlock: 59284623
     mapping:
       kind: ethereum/events
-      apiVersion: 0.0.5
+      apiVersion: 0.0.6
       language: wasm/assemblyscript
       entities:
         - Transfer
@@ -23,28 +23,38 @@ dataSources:
         - name: ERC20
           file: ./abis/ERC20.json
       eventHandlers:
-        - event: OrderCreated(uint256,address,uint256,uint256,uint256,address,uint256)
+        - event: OrderCreated(uint256,address,uint256,uint256,uint256,uint256,address,uint256,uint256)
           handler: handleOrderCreated
         - event: OrderSetMerchantDefaultNumberOfOrderIntervals(uint256,uint256,address)
           handler: handleOrderSetMerchantDefaultNumberOfOrderIntervals
-        - event: OrderAccepted(uint256,address,uint256,uint256)
+        - event: OrderAccepted(uint256,bytes32,address,uint256,uint256,uint256,uint256)
           handler: handleOrderAccepted
-        - event: OrderPaidOut(uint256,address,uint256,uint256,uint256,address)
+        - event: OrderPaidOut(uint256,bytes32,uint256,uint256,uint256,address)
           handler: handleOrderPaidOut
-        - event: OrderPaidOutGasSavingMode(uint256,address,uint256,uint256,uint256,address)
+        - event: OrderPaidOutGasSavingMode(uint256,bytes32,uint256,uint256,uint256,address)
           handler: handleOrderPaidOutGasSavingMode
-        - event: OrderRenewed(uint256,address,uint256,uint256,bool)
+        - event: OrderRenewed(uint256,bytes32,address,uint256,uint256,bool)
           handler: handleOrderRenewed
-        - event: OrderCancelled(uint256,address)
+        - event: OrderCancelled(uint256,bytes32,address)
           handler: handleOrderCancelled
         - event: OrderPaused(uint256,bool,address)
           handler: handleOrderPaused
-        - event: SuccessfulPay(uint256,address)
+        - event: SuccessfulPay(uint256,bytes32,address)
           handler: handleSuccessfulPay
-        - event: PaymentFailure(string,uint256,address)
+        - event: PaymentFailure(string,uint256,bytes32,address)
           handler: handlePaymentFailure
         - event: MerchantWithdrawERC20(address,address,uint256)
           handler: handleMerchantWithdrawERC20
         - event: OwnerWithdrawERC20(address,uint256)
           handler: handleOwnerWithdrawERC20
+        - event: ExtraBudgetLogged(uint256,bytes32,address,uint256,uint256,uint256)
+          handler: handleExtraBudgetLogged
+        - event: ExtraBudgetPaymentProcessed(uint256,bytes32,address,uint256,uint256)
+          handler: handleExtraBudgetPaymentProcessed
+        - event: ExtraBudgetPaidOut(uint256,uint256,uint256,uint256)
+          handler: handleExtraBudgetPaidOut
+        - event: ExtraBudgetRefunded(uint256,bytes32,address,uint256,uint256)
+          handler: handleExtraBudgetRefunded
+        - event: SetMerchantSpecificExtraBudgetLockTime(address,uint256)
+          handler: handleSetMerchantSpecificExtraBudgetLockTime
       file: ./src/SubscriptionApp.mapping.ts

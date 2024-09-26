@@ -1,6 +1,11 @@
 pragma solidity 0.6.12;
 
-import "./interfaces/IWETH.sol";
+
+interface IWETH {
+    function deposit() external payable;
+    function transfer(address to, uint value) external returns (bool);
+    function withdraw(uint) external;
+}
 
 contract WethToken is IWETH{
     string public constant name = "Wrapped Ether";

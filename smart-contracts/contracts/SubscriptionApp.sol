@@ -1,5 +1,6 @@
 pragma solidity ^0.8.15;
 
+// UNISUB IO
 
 //
 // OpenZeppelin Contracts (last updated v4.6.0) (token/ERC20/IERC20.sol)
@@ -176,7 +177,7 @@ library BokkyPooBahsDateTimeLibrary {
         }
     }
 
-    //
+
     function addYears(uint timestamp, uint _years) internal pure returns (uint newTimestamp) {
         uint year;
         uint month;
@@ -273,15 +274,18 @@ interface IERC165 {
 contract SubscriptionApp {
     bool initialized;
     address public owner;
-    uint256 public defaultTotalIntervals;
+    address public operator;
     uint256 public defaultPlatformFee;
     uint256 public nextOrder;
+
+    mapping(bytes32 => address) public customerIdToAddress;
 
     // Events
     event OrderCreated(
         uint256 orderId,
         address merchant,
         uint256 chargePerInterval,
+        uint256 extraBudgetPerInterval,
         uint256 startTime,
         uint256 intervalDuration,
         address erc20,
@@ -291,24 +295,58 @@ contract SubscriptionApp {
 
     event OrderAccepted(
         uint256 orderId,
-        address customer,
+        bytes32 customerId,
+        address customerAddress,
         uint256 startTime,
+        uint256 extraBudgetPerInterval,
         uint256 approvedPeriodsRemaining,
         uint256 trialIntervalsRemaining
     );
 
     event OrderPaidOut(
         uint256 orderId,
-        address customer,
+        bytes32 customerId,
         uint256 amount,
         uint256 feeAmount,
         uint256 timestamp,
         address executor // Merchant or owner address that paid out
     );
 
+    event ExtraBudgetLogged(
+        uint256 orderId,
+        bytes32 customerId,
+        address customerAddress,
+        uint256 extraAmount,
+        uint256 pendingPeriods,
+        uint256 index
+    );
+
+    event ExtraBudgetPaymentProcessed(
+        uint256 orderId,
+        bytes32 customerId,
+        address customerAddress,
+        uint256 amount,
+        uint256 index
+    );
+
+    event ExtraBudgetPaidOut(
+        uint256 orderId,
+        uint256 amount,
+        uint256 startPaymentIndex,
+        uint256 endPaymentIndex
+    );
+
+    event ExtraBudgetRefunded(
+        uint256 orderId,
+        bytes32 customerId,
+        address customerAddress,
+        uint256 extraAmount, // Refunded amount
+        uint256 index
+    );
+
     event OrderPaidOutGasSavingMode(
         uint256 orderId,
-        address customer,
+        bytes32 customerId,
         uint256 amount,
         uint256 feeAmount,
         uint256 timestamp,
@@ -317,7 +355,8 @@ contract SubscriptionApp {
 
     event OrderRenewed(
         uint256 orderId,
-        address customer,
+        bytes32 customerId,
+        address customerAddress,
         uint256 startTime,
         uint256 approvedPeriodsRemaining,
         bool orderRenewedNotExtended
@@ -325,7 +364,8 @@ contract SubscriptionApp {
 
     event OrderCancelled(
         uint256 orderId,
-        address customer
+        bytes32 customerId,
+        address customerAddress
     );
 
     event OrderPaused(
@@ -340,21 +380,37 @@ contract SubscriptionApp {
         address whoSetIt
     );
 
-    event SuccessfulPay(uint256 orderId, address customer);
-    event PaymentFailureBytes(bytes someData, uint256 orderId, address customer);
-    event PaymentFailure(string revertString, uint256 orderId, address customer);
+    event SuccessfulPay(uint256 orderId,
+                        bytes32 customerId,
+                        address customerAddress);
+
+    event PaymentFailureBytes(bytes someData,
+        uint256 orderId,
+        bytes32 customerId,
+        address customerAddress);
+
+    event PaymentFailure(string revertString,
+        uint256 orderId,
+        bytes32 customerId,
+        address customerAddress);
 
     event SetMerchantSpecificPlatformFee(address merchant, uint256 customPlatformFee, bool activated);
+    event SetMerchantSpecificExtraBudgetLockTime(address merchant, uint256 customLockTime);
 
     event MerchantWithdrawERC20(address erc20, address merchant, uint256 value);
     event OwnerWithdrawERC20(address erc20, uint256 value);
     event ChangeOwner(address newOwner);
+    event ChangeOperator(address operator);
 
     // Structs
 
     struct CustomerOrder {
-        address customer;
-        uint256 approvedPeriodsRemaining; // This number is based on the registration, it is default 36 months of reg
+        bytes32 customerId;
+        address customerAddress;
+        uint256 extraBudgetPerInterval;
+        uint256 extraBudgetUsed;
+        uint256 extraBudgetLifetime;
+        uint256 approvedPeriodsRemaining;
         uint256 trialIntervalsRemaining;
         uint256 firstPaymentMadeTimestamp;
         uint256 numberOfIntervalsPaid;
@@ -366,27 +422,41 @@ contract SubscriptionApp {
         uint256 orderId;
         address merchant;
         uint256 chargePerInterval;
+        uint256 extraBudgetPerInterval;
         uint256 startTime;
         uint256 intervalDuration;
         address erc20;
         bool paused;
         uint256 trialIntervals;
         uint256 merchantDefaultNumberOfOrderIntervals;
-        mapping(address => CustomerOrder) customerOrders;
+        mapping(bytes32 => CustomerOrder) customerOrders;
+    }
+    struct PendingExtraBudgetPayment {
+        bytes32 customerId;
+        address customerAddress;
+        uint256 timestamp;
+        uint256 extraAmount;
+        bool processed;
+        bool refunded;
     }
 
     /// @notice order id to order
     mapping(uint256 => Order) public orders;
 
-    mapping(uint256 => mapping(address=> uint256[])) public customerHistoryTimestamps;
-    mapping(uint256 => mapping(address=> uint256[])) public customerHistoryAmounts;
-    mapping(uint256 => mapping(address=> uint256[])) public customerHistoryFeePercentages;
+    mapping(uint256 => mapping(bytes32=> uint256[])) public customerHistoryTimestamps;
+    mapping(uint256 => mapping(bytes32=> uint256[])) public customerHistoryAmounts;
+    mapping(uint256 => mapping(bytes32=> uint256[])) public customerHistoryFeePercentages;
 
     mapping(address => bool) public customPlatformFeeAssigned;
     mapping(address => uint256) public customPlatformFee;
 
     mapping(address => uint256) public pendingOwnerWithdrawalAmountByToken;
     mapping(address => mapping (address => uint256)) public pendingMerchantWithdrawalAmountByMerchantAndToken;
+
+    // Order id ->  list of pending extra budget payments
+    mapping(uint256 => PendingExtraBudgetPayment[]) public pendingExtraBudgetPaymentListByOrderAndCustomer;
+    uint256 public lockDownPeriodExtraBudgetPayment;
+    mapping(address => uint256) public customLockDownPeriodExtraBudgetPaymentMerchants;
 
     modifier onlyOwner() {
         require(owner == msg.sender, "Caller is not the owner");
@@ -398,28 +468,40 @@ contract SubscriptionApp {
 
     function initialize(uint256 _defaultPlatformFee) public{
         if(!initialized){
-            defaultTotalIntervals = 36; // This is the default # of months just to show the merchants at order creation, real default comes directly from merchant now
             defaultPlatformFee = _defaultPlatformFee;
             owner = msg.sender;
+            operator = address(0);
             nextOrder = 0;
+            lockDownPeriodExtraBudgetPayment = 604800; // 7 days in seconds
             initialized = true;
         }
     }
 
+    /// @dev ChangeOwner
+    /// @param newOwner The new Owner
     function changeOwner(address newOwner) public onlyOwner {
         require(newOwner != address(0), 'Cannot change owner to 0');
         owner = newOwner;
         emit ChangeOwner(newOwner);
     }
 
-    function changeDefaultTotalIntervals(uint _defaultTotalIntervals) public onlyOwner {
-        defaultTotalIntervals = _defaultTotalIntervals;
+    /// @dev ChangeOperator
+    /// @param _operator The new Operator authorized to process payments
+    function changeOperator(address _operator) public onlyOwner {
+        operator = _operator;
+        emit ChangeOperator(_operator);
     }
 
+    /// @dev ChangeDefaultPlatformFee
+    /// @param _defaultPlatformFee The new fee for using the platform
     function changeDefaultPlatformFee(uint _defaultPlatformFee) public onlyOwner {
         defaultPlatformFee = _defaultPlatformFee;
     }
 
+    /// @dev SetMerchantSpecificPlatformFee
+    /// @param _merchant The merchant
+    /// @param _platformFee Custom platform fee for merchant
+    /// @param _activated Fee activated with custom platform fee or deactivated
     function setMerchantSpecificPlatformFee(address _merchant, uint256 _platformFee, bool _activated) public onlyOwner {
         if(_activated){
             customPlatformFeeAssigned[_merchant] = true;
@@ -432,7 +514,25 @@ contract SubscriptionApp {
         }
         emit SetMerchantSpecificPlatformFee(_merchant, _platformFee, _activated);
     }
+    /// @dev SetMerchantSpecificExtraBudgetLockTime
+    /// @param _merchant The merchant that will have extra budget lock in time modified
+    /// @param _lockTimeSeconds Seconds to hold on to extra budget expenditure before allowing merchant to withdraw it
+    function setMerchantSpecificExtraBudgetLockTime(address _merchant, uint256 _lockTimeSeconds) public onlyOwner {
+        customLockDownPeriodExtraBudgetPaymentMerchants[_merchant] = _lockTimeSeconds;
+        emit SetMerchantSpecificExtraBudgetLockTime(_merchant, _lockTimeSeconds);
+    }
 
+    /// @dev GetMerchantSpecificExtraBudgetLockTime
+    /// @param _merchant The merchant to check extra budget lock time on
+    function getMerchantSpecificExtraBudgetLockTime(address _merchant) public view returns (uint256) {
+        if(customLockDownPeriodExtraBudgetPaymentMerchants[_merchant] == 0) {
+            return lockDownPeriodExtraBudgetPayment;
+        }
+        return customLockDownPeriodExtraBudgetPaymentMerchants[_merchant];
+    }
+
+    /// @dev PlatformFee
+    /// @param _merchant The merchant we want to get the platform fee rate for, either custom defined or default
     function platformFee(address _merchant) public view returns (uint256) {
         if(customPlatformFeeAssigned[_merchant]){
             return customPlatformFee[_merchant];
@@ -443,11 +543,12 @@ contract SubscriptionApp {
 
     /// @dev CreateNewOrder
     /// @param _chargePerInterval Cost of the order every interval
+    /// @param _extraBudgetPerInterval Every interval, this amount of budget can be spent by the merchant for extra charges.
     /// @param _intervalDuration The duration of the interval - seconds 9, minutes 8, hourly 7, daily 6, weekly 5, bi-weekly 4, monthly 3, quarter-year 2, bi-yearly 1, yearly 0
     /// @param _erc20 Address of the payment token
     /// @param _merchantDefaultNumberOfOrderIntervals Default number of intervals to approve
     /// @param _trialIntervals Number of intervals that are free
-    function createNewOrder(uint256 _chargePerInterval, uint256 _intervalDuration, IERC20 _erc20, uint256 _merchantDefaultNumberOfOrderIntervals, uint256 _trialIntervals) public {
+    function createNewOrder(uint256 _chargePerInterval, uint256 _extraBudgetPerInterval, uint256 _intervalDuration, IERC20 _erc20, uint256 _merchantDefaultNumberOfOrderIntervals, uint256 _trialIntervals) public {
         require(_intervalDuration < 10, "Interval duration between 0 and 9");
         // Supports interface
         bool worked = false;
@@ -458,6 +559,7 @@ contract SubscriptionApp {
                     order.orderId = nextOrder;
                     order.merchant = msg.sender;
                     order.chargePerInterval = _chargePerInterval;
+                    order.extraBudgetPerInterval = _extraBudgetPerInterval;
                     order.startTime = _getNow();
                     order.intervalDuration = _intervalDuration;
                     order.erc20 = address(_erc20);
@@ -470,6 +572,7 @@ contract SubscriptionApp {
                         nextOrder,
                         msg.sender,
                         _chargePerInterval,
+                        _extraBudgetPerInterval,
                         order.startTime,
                         _intervalDuration,
                         address(_erc20),
@@ -490,13 +593,16 @@ contract SubscriptionApp {
         require(worked, "ERC20 token not compatible");
     }
 
+    /// @dev GetOrder
+    /// @param _orderId The id of the order to get information for
     function getOrder(uint256 _orderId) external view returns
-    (uint256 orderId, address merchant, uint256 chargePerInterval, uint256 startTime, uint256 intervalDuration, address erc20, bool paused, uint256 merchantDefaultNumberOfOrderIntervals, uint256 trialIntervals){
+    (uint256 orderId, address merchant, uint256 chargePerInterval, uint256 extraBudgetPerInterval, uint256 startTime, uint256 intervalDuration, address erc20, bool paused, uint256 merchantDefaultNumberOfOrderIntervals, uint256 trialIntervals){
         Order storage order = orders[_orderId];
         return (
         order.orderId,
         order.merchant,
         order.chargePerInterval,
+        order.extraBudgetPerInterval,
         order.startTime,
         order.intervalDuration,
         order.erc20,
@@ -506,17 +612,29 @@ contract SubscriptionApp {
         );
     }
 
-    function getCustomerOrder(uint256 _orderId, address _customer) external view returns
-    (address customer,
+
+    /// @dev GetCustomerOrder
+    /// @param _orderId The id of the order to get information for
+    /// @param _customerId Bytes32 customer id for this specific subscription
+    function getCustomerOrder(uint256 _orderId, bytes32 _customerId) external view returns
+    (bytes32 customerId,
+        address customerAddress,
+        uint256 extraBudgetPerInterval,
+        uint256 extraBudgetUsed,
+        uint256 extraBudgetLifetime,
         uint256 approvedPeriodsRemaining, // This number is based on the registration, it is default 36 months of reg
         uint256 trialIntervalsRemaining,
         uint256 firstPaymentMadeTimestamp,
         uint256 numberOfIntervalsPaid,
         bool terminated,
         uint256 amountPaidToDate){
-        CustomerOrder storage order = orders[_orderId].customerOrders[_customer];
+        CustomerOrder storage order = orders[_orderId].customerOrders[_customerId];
         return (
-        order.customer,
+        order.customerId,
+        order.customerAddress,
+        order.extraBudgetPerInterval,
+        order.extraBudgetUsed,
+        order.extraBudgetLifetime,
         order.approvedPeriodsRemaining,
         order.trialIntervalsRemaining,
         order.firstPaymentMadeTimestamp,
@@ -526,36 +644,53 @@ contract SubscriptionApp {
         );
     }
 
-    function getPaymentHistoryEntry(uint256 _orderId, address _customer, uint256 _index) external view returns
+    /// @dev GetPaymentHistoryEntry
+    /// @param _orderId The id of the order to get information for
+    /// @param _customerId Customer bytes32 ID
+    /// @param _index A specific entry of payment history
+    function getPaymentHistoryEntry(uint256 _orderId, bytes32 _customerId, uint256 _index) external view returns
     (uint256 timestamp, uint256 amount, uint256 feePercentage){
         return (
-        customerHistoryTimestamps[_orderId][_customer][_index],
-        customerHistoryAmounts[_orderId][_customer][_index],
-        customerHistoryFeePercentages[_orderId][_customer][_index]
+        customerHistoryTimestamps[_orderId][_customerId][_index],
+        customerHistoryAmounts[_orderId][_customerId][_index],
+        customerHistoryFeePercentages[_orderId][_customerId][_index]
         );
     }
 
-    function setMerchantDefaultNumberOfOrderIntervals(uint256 orderId, uint256 _defaultNumberOfOrderIntervals) external{
-        Order storage order = orders[orderId];
+    /// @dev SetMerchantDefaultNumberOfOrderIntervals
+    /// @param _orderId The id of the order
+    /// @param _defaultNumberOfOrderIntervals The number of order intervals that the merchant wants to approve
+    function setMerchantDefaultNumberOfOrderIntervals(uint256 _orderId, uint256 _defaultNumberOfOrderIntervals) external{
+        Order storage order = orders[_orderId];
         require(order.merchant == msg.sender || owner == msg.sender, "Only the merchant or owner can call");
         order.merchantDefaultNumberOfOrderIntervals = _defaultNumberOfOrderIntervals;
-        emit OrderSetMerchantDefaultNumberOfOrderIntervals(orderId, _defaultNumberOfOrderIntervals, msg.sender);
+        emit OrderSetMerchantDefaultNumberOfOrderIntervals(_orderId, _defaultNumberOfOrderIntervals, msg.sender);
     }
 
-    function setOrderPauseState(uint256 orderId, bool isPaused) external{
-        Order storage order = orders[orderId];
+    /// @dev SetOrderPauseState
+    /// @param _orderId The id of the order
+    /// @param _isPaused True to Pause and False to Unpause
+    function setOrderPauseState(uint256 _orderId, bool _isPaused) external{
+        Order storage order = orders[_orderId];
         require(order.merchant == msg.sender || owner == msg.sender, "Only the merchant or owner can pause");
-        order.paused = isPaused;
-        emit OrderPaused(orderId, isPaused, msg.sender);
+        order.paused = _isPaused;
+        emit OrderPaused(_orderId, _isPaused, msg.sender);
     }
 
     /// @dev CustomerAcceptOrder and pay
     /// @param _orderId Order id
+    /// @param _customerId Bytes32 Customer ID
+    /// @param _extraBudgetPerInterval Extra Budget that the customer is accepting per cycle
     /// @param _approvedPeriods Number of periods or months accepted
-    function customerAcceptOrder(uint256 _orderId, uint256 _approvedPeriods) public {
+    function customerAcceptOrder(uint256 _orderId, bytes32 _customerId, uint256 _extraBudgetPerInterval, uint256 _approvedPeriods) public {
         Order storage order = orders[_orderId];
         require(!order.paused, "Cannot process, this order is paused");
-        require(order.customerOrders[msg.sender].firstPaymentMadeTimestamp == 0, "This account is already registered on this order");
+
+        require(customerIdToAddress[_customerId] == address(0), "Can't reuse customer ids");
+        require(order.customerOrders[_customerId].firstPaymentMadeTimestamp == 0, "This customer id is already registered on this order");
+
+        address customerAddress = msg.sender;
+        customerIdToAddress[_customerId] = customerAddress;
 
         // If it is 0 use the default
         if( _approvedPeriods == 0 ){
@@ -565,9 +700,9 @@ contract SubscriptionApp {
         uint256 trialPeriodsRemaining = order.trialIntervals;
         if(trialPeriodsRemaining > 0){
             trialPeriodsRemaining = order.trialIntervals - 1;
-            customerHistoryTimestamps[_orderId][msg.sender].push(_getNow());
-            customerHistoryAmounts[_orderId][msg.sender].push(uint256(0));
-            customerHistoryFeePercentages[_orderId][msg.sender].push(uint(0));
+            customerHistoryTimestamps[_orderId][_customerId].push(_getNow());
+            customerHistoryAmounts[_orderId][_customerId].push(uint256(0));
+            customerHistoryFeePercentages[_orderId][_customerId].push(uint(0));
         } else{
             // Make payment if there is no free trial
             uint256 calculateFee = (order.chargePerInterval * platformFee(order.merchant)) / (1000);
@@ -580,17 +715,19 @@ contract SubscriptionApp {
 
             (bool successMerchant) = IERC20(order.erc20).transferFrom(msg.sender, order.merchant, (order.chargePerInterval - calculateFee));
             require(successMerchant, "Merchant transfer has failed");
-            customerHistoryTimestamps[_orderId][msg.sender].push(_getNow());
-            customerHistoryAmounts[_orderId][msg.sender].push( order.chargePerInterval);
-            customerHistoryFeePercentages[_orderId][msg.sender].push(platformFee(order.merchant));
+            customerHistoryTimestamps[_orderId][_customerId].push(_getNow());
+            customerHistoryAmounts[_orderId][_customerId].push( order.chargePerInterval);
+            customerHistoryFeePercentages[_orderId][_customerId].push(platformFee(order.merchant));
         }
 
 
         // Update customer histories
-
-
-        order.customerOrders[msg.sender] = CustomerOrder({
-        customer: msg.sender,
+        order.customerOrders[_customerId] = CustomerOrder({
+        customerId: _customerId,
+        customerAddress: msg.sender,
+        extraBudgetPerInterval: _extraBudgetPerInterval,
+        extraBudgetUsed: 0,
+        extraBudgetLifetime: 0,
         approvedPeriodsRemaining: _approvedPeriods,
         trialIntervalsRemaining: trialPeriodsRemaining,
         terminated: false,
@@ -602,81 +739,102 @@ contract SubscriptionApp {
 
         emit OrderAccepted(
             _orderId,
+            _customerId,
             msg.sender,
             _getNow(),
+            _extraBudgetPerInterval,
             _approvedPeriods,
             trialPeriodsRemaining);
     }
 
-    // @dev BatchProcessPayment
-    // @param _orderIds Order ids
-    // @param _customers The customers array it must be the same length as the order id array
-    function batchProcessPayment(uint256[] memory _orderIds, address[] memory _customers, bool _gasSavingMode) external {
-        require(_orderIds.length == _customers.length, "The orders and customers must be equal length");
+    /// @dev BatchProcessPayment
+    /// @param _orderIds Order ids
+    /// @param _customerIds The customers bytes32 id array, it must be the same length as the order id array
+    /// @param _gasSavingMode False will trigger erc20 tokens to go directly to the merchant. True will use gas saving mode to escrow payments for later withdrawal by the merchant
+    /// @param _extraAmounts If there will be extra amounts on a subscription charged, the amount that corresponds to previous arrays
+    function batchProcessPayment(uint256[] memory _orderIds, bytes32[] memory _customerIds, bool _gasSavingMode, uint256[] memory _extraAmounts) external {
+        require(_orderIds.length == _customerIds.length, "The orders and customers must be equal length");
+        require(_orderIds.length == _extraAmounts.length, "The orders and extra amounts must be equal length");
 
         for(uint256 i=0; i< _orderIds.length; i++){
             bool success;
             string memory revertReason;
             bytes memory revertData;
-            (success, revertReason, revertData) = _processPayment(_orderIds[i], _customers[i], _gasSavingMode);
+            (success, revertReason, revertData) = _processPayment(_orderIds[i], _customerIds[i], _gasSavingMode, _extraAmounts[i]);
             if(success)
             {
-                emit SuccessfulPay(_orderIds[i], _customers[i]);
+                emit SuccessfulPay(_orderIds[i], _customerIds[i], customerIdToAddress[_customerIds[i]]);
             } else {
                 if(bytes(revertReason).length > 0){
-                    emit PaymentFailure(revertReason, _orderIds[i], _customers[i]);
+                    emit PaymentFailure(revertReason, _orderIds[i], _customerIds[i], customerIdToAddress[_customerIds[i]]);
                 } else {
-                    emit PaymentFailureBytes(revertData, _orderIds[i], _customers[i]);
+                    emit PaymentFailureBytes(revertData, _orderIds[i], _customerIds[i], customerIdToAddress[_customerIds[i]]);
                 }
             }
         }
     }
 
-    function _processPayment(uint256 _orderId, address _customer, bool _gasSavingMode) internal returns (bool success, string memory revertCause, bytes memory revertData) {
+    function _processPayment(uint256 _orderId, bytes32 _customerId, bool _gasSavingMode, uint256 extraBudgetAmount) internal returns (bool success, string memory revertCause, bytes memory revertData) {
         Order storage order = orders[_orderId];
-        uint256 howManyIntervalsToPay = _howManyIntervalsToPay(order, _customer);
-        if(howManyIntervalsToPay > order.customerOrders[_customer].approvedPeriodsRemaining){
-            howManyIntervalsToPay = order.customerOrders[_customer].approvedPeriodsRemaining;
+
+        //Need to only allow owner, operator, or merchant to process payment
+        require(msg.sender == operator || msg.sender == owner || msg.sender == order.merchant, "Only operator, owner or merchant can process payments");
+
+        require(order.customerOrders[_customerId].firstPaymentMadeTimestamp > 0); // Need to be greater than 0 firstpayment timestamp
+
+        uint256 howManyIntervalsToPay = _howManyIntervalsToPay(order, _customerId);
+
+        if(howManyIntervalsToPay > order.customerOrders[_customerId].approvedPeriodsRemaining){
+            howManyIntervalsToPay = order.customerOrders[_customerId].approvedPeriodsRemaining;
         }
 
         uint256 howManyIntervalsMinusTrialIntervals = 0;
-        if(howManyIntervalsToPay > order.customerOrders[_customer].trialIntervalsRemaining){
-            howManyIntervalsMinusTrialIntervals = howManyIntervalsToPay - order.customerOrders[_customer].trialIntervalsRemaining;
+        if(howManyIntervalsToPay > order.customerOrders[_customerId].trialIntervalsRemaining){
+            howManyIntervalsMinusTrialIntervals = howManyIntervalsToPay - order.customerOrders[_customerId].trialIntervalsRemaining;
         } else {
             howManyIntervalsMinusTrialIntervals = 0;
         }
 
+        bool terminated = order.customerOrders[_customerId].terminated;
+
         uint256 howMuchERC20ToSend = howManyIntervalsMinusTrialIntervals * order.chargePerInterval;
         uint256 calculateFee = (howMuchERC20ToSend * platformFee(order.merchant)) / (1000);
-        bool terminated = order.customerOrders[_customer].terminated;
 
 
         if(!_gasSavingMode){
-            try SubscriptionApp(this).payOutMerchantAndFeesInternalMethod(_customer, howMuchERC20ToSend, calculateFee, order.paused, terminated, order.merchant, order.erc20
+            try SubscriptionApp(this).payOutMerchantAndFeesInternalMethod(_customerId, howMuchERC20ToSend, calculateFee, order.paused, terminated, order.merchant, order.erc20
             ) {
-                order.customerOrders[_customer].numberOfIntervalsPaid = order.customerOrders[_customer].numberOfIntervalsPaid + howManyIntervalsToPay;
-                order.customerOrders[_customer].approvedPeriodsRemaining = order.customerOrders[_customer].approvedPeriodsRemaining - howManyIntervalsToPay;
-                if(order.customerOrders[_customer].trialIntervalsRemaining >= howManyIntervalsToPay){
-                    order.customerOrders[_customer].trialIntervalsRemaining = order.customerOrders[_customer].trialIntervalsRemaining - howManyIntervalsToPay;
+                order.customerOrders[_customerId].numberOfIntervalsPaid = order.customerOrders[_customerId].numberOfIntervalsPaid + howManyIntervalsToPay;
+                order.customerOrders[_customerId].approvedPeriodsRemaining = order.customerOrders[_customerId].approvedPeriodsRemaining - howManyIntervalsToPay;
+                if(order.customerOrders[_customerId].trialIntervalsRemaining >= howManyIntervalsToPay){
+                    order.customerOrders[_customerId].trialIntervalsRemaining = order.customerOrders[_customerId].trialIntervalsRemaining - howManyIntervalsToPay;
                 } else {
-                    order.customerOrders[_customer].trialIntervalsRemaining = 0;
+                    order.customerOrders[_customerId].trialIntervalsRemaining = 0;
                 }
+                if(howMuchERC20ToSend > 0) {
+                    order.customerOrders[_customerId].amountPaidToDate = order.customerOrders[_customerId].amountPaidToDate + howMuchERC20ToSend;
 
-                order.customerOrders[_customer].amountPaidToDate = order.customerOrders[_customer].amountPaidToDate + howMuchERC20ToSend;
+                    // Update customer histories
+                    customerHistoryTimestamps[_orderId][_customerId].push(_getNow());
+                    customerHistoryAmounts[_orderId][_customerId].push( order.chargePerInterval);
+                    customerHistoryFeePercentages[_orderId][_customerId].push(platformFee(order.merchant));
 
-                // Update customer histories
-                customerHistoryTimestamps[_orderId][_customer].push(_getNow());
-                customerHistoryAmounts[_orderId][_customer].push( order.chargePerInterval);
-                customerHistoryFeePercentages[_orderId][_customer].push(platformFee(order.merchant));
-
-                emit OrderPaidOut(
-                    _orderId,
-                    _customer,
-                    howMuchERC20ToSend,
-                    calculateFee,
-                    _getNow(),
-                    tx.origin
-                );
+                    emit OrderPaidOut(
+                        _orderId,
+                        _customerId,
+                        howMuchERC20ToSend,
+                        calculateFee,
+                        _getNow(),
+                        tx.origin
+                    );
+                }
+                // First process extra budget payment
+                if(extraBudgetAmount > 0) {
+                    (bool success, string memory revertReason) = processExtraBudgetPayment(_orderId, _customerId, extraBudgetAmount, howManyIntervalsToPay);
+                    if (!success) {
+                        return (false, revertReason, "");
+                    }
+                }
                 return (true, "", "");
             } catch Error(string memory revertReason) {
                 return (false, revertReason, "");
@@ -685,35 +843,44 @@ contract SubscriptionApp {
             }
         } else{
             // Gas saving mode holds on to balances accounting for the merchants and owner
-            try SubscriptionApp(this).payOutGasSavingInternalMethod(_customer, howMuchERC20ToSend, order.paused, terminated, order.erc20
+            try SubscriptionApp(this).payOutGasSavingInternalMethod(_customerId, howMuchERC20ToSend, order.paused, terminated, order.erc20
             ) {
-                order.customerOrders[_customer].numberOfIntervalsPaid = order.customerOrders[_customer].numberOfIntervalsPaid + howManyIntervalsToPay;
-                order.customerOrders[_customer].approvedPeriodsRemaining = order.customerOrders[_customer].approvedPeriodsRemaining - howManyIntervalsToPay;
-                if(order.customerOrders[_customer].trialIntervalsRemaining >= howManyIntervalsToPay){
-                    order.customerOrders[_customer].trialIntervalsRemaining = order.customerOrders[_customer].trialIntervalsRemaining - howManyIntervalsToPay;
+                order.customerOrders[_customerId].numberOfIntervalsPaid = order.customerOrders[_customerId].numberOfIntervalsPaid + howManyIntervalsToPay;
+                order.customerOrders[_customerId].approvedPeriodsRemaining = order.customerOrders[_customerId].approvedPeriodsRemaining - howManyIntervalsToPay;
+                if(order.customerOrders[_customerId].trialIntervalsRemaining >= howManyIntervalsToPay){
+                    order.customerOrders[_customerId].trialIntervalsRemaining = order.customerOrders[_customerId].trialIntervalsRemaining - howManyIntervalsToPay;
                 } else {
-                    order.customerOrders[_customer].trialIntervalsRemaining = 0;
+                    order.customerOrders[_customerId].trialIntervalsRemaining = 0;
                 }
-                order.customerOrders[_customer].amountPaidToDate = order.customerOrders[_customer].amountPaidToDate + howMuchERC20ToSend;
+                if(howMuchERC20ToSend > 0) {
+                    order.customerOrders[_customerId].amountPaidToDate = order.customerOrders[_customerId].amountPaidToDate + howMuchERC20ToSend;
 
-                // Update customer histories
-                customerHistoryTimestamps[_orderId][_customer].push(_getNow());
-                customerHistoryAmounts[_orderId][_customer].push( order.chargePerInterval);
-                customerHistoryFeePercentages[_orderId][_customer].push(platformFee(order.merchant));
+                    // Update customer histories
+                    customerHistoryTimestamps[_orderId][_customerId].push(_getNow());
+                    customerHistoryAmounts[_orderId][_customerId].push( order.chargePerInterval);
+                    customerHistoryFeePercentages[_orderId][_customerId].push(platformFee(order.merchant));
 
-                // Update balance -- this is the different part of code
-                pendingOwnerWithdrawalAmountByToken[order.erc20] = calculateFee;
-                pendingMerchantWithdrawalAmountByMerchantAndToken[order.merchant][order.erc20] =  howMuchERC20ToSend - calculateFee;
-                // --
+                    // Update balance -- this is the different part of code
+                    pendingOwnerWithdrawalAmountByToken[order.erc20] += calculateFee;
+                    pendingMerchantWithdrawalAmountByMerchantAndToken[order.merchant][order.erc20] +=  (howMuchERC20ToSend - calculateFee);
 
-                emit OrderPaidOutGasSavingMode(
-                    _orderId,
-                    _customer,
-                    howMuchERC20ToSend,
-                    calculateFee,
-                    _getNow(),
-                    tx.origin
-                );
+                    emit OrderPaidOutGasSavingMode(
+                        _orderId,
+                        _customerId,
+                        howMuchERC20ToSend,
+                        calculateFee,
+                        _getNow(),
+                        tx.origin
+                    );
+                }
+                // First process extra budget payment
+                if(extraBudgetAmount > 0) {
+                    (bool success, string memory revertReason) = processExtraBudgetPayment(_orderId, _customerId, extraBudgetAmount, howManyIntervalsToPay);
+                    if (!success) {
+                        return (false, revertReason, "");
+                    }
+                }
+
                 return (true, "", "");
             } catch Error(string memory revertReason) {
                 return (false, revertReason, "");
@@ -724,7 +891,7 @@ contract SubscriptionApp {
     }
 
     function payOutMerchantAndFeesInternalMethod(
-        address _customer,
+        bytes32 _customerId,
         uint256 howMuchERC20ToSend,
         uint256 calculateFee,
         bool orderPaused,
@@ -732,39 +899,45 @@ contract SubscriptionApp {
         address orderMerchant,
         address orderErc20) external {
         require(msg.sender == address(this), "Internal calls only");
-        require(!orderPaused, "Cannot process, this order is paused");
         require(!terminated, "This payment has been cancelled");
-        require(IERC20(orderErc20).allowance(_customer, address(this)) >= howMuchERC20ToSend, "Insufficient erc20 allowance");
-        require(IERC20(orderErc20).balanceOf(_customer) >= howMuchERC20ToSend, "Insufficient balance");
+        require(!orderPaused, "Cannot process, this order is paused");
+        require(IERC20(orderErc20).allowance(customerIdToAddress[_customerId], address(this)) >= howMuchERC20ToSend, "Insufficient erc20 allowance");
+        require(IERC20(orderErc20).balanceOf(customerIdToAddress[_customerId]) >= howMuchERC20ToSend, "Insufficient balance");
 
-        (bool successFee) = IERC20(orderErc20).transferFrom(_customer, owner, calculateFee);
+        (bool successFee) = IERC20(orderErc20).transferFrom(customerIdToAddress[_customerId], owner, calculateFee);
         require(successFee, "Fee transfer has failed");
 
-        (bool successMerchant) = IERC20(orderErc20).transferFrom(_customer, orderMerchant, (howMuchERC20ToSend - calculateFee));
+        (bool successMerchant) = IERC20(orderErc20).transferFrom(customerIdToAddress[_customerId], orderMerchant, (howMuchERC20ToSend - calculateFee));
         require(successMerchant, "Merchant transfer has failed");
     }
 
     function payOutGasSavingInternalMethod(
-        address _customer,
+        bytes32 _customerId,
         uint256 howMuchERC20ToSend,
         bool orderPaused,
         bool terminated,
         address orderErc20) external {
         require(msg.sender == address(this), "Internal calls only");
-        require(!orderPaused, "Cannot process, this order is paused");
         require(!terminated, "This payment has been cancelled");
-        require(IERC20(orderErc20).allowance(_customer, address(this)) >= howMuchERC20ToSend, "Insufficient erc20 allowance");
-        require(IERC20(orderErc20).balanceOf(_customer) >= howMuchERC20ToSend, "Insufficient balance");
-        (bool successPayment) = IERC20(orderErc20).transferFrom(_customer, address(this), howMuchERC20ToSend);
+        require(!orderPaused, "Cannot process, this order is paused");
+        require(IERC20(orderErc20).allowance(customerIdToAddress[_customerId], address(this)) >= howMuchERC20ToSend, "Insufficient erc20 allowance");
+        require(IERC20(orderErc20).balanceOf(customerIdToAddress[_customerId]) >= howMuchERC20ToSend, "Insufficient balance");
+        (bool successPayment) = IERC20(orderErc20).transferFrom(customerIdToAddress[_customerId], address(this), howMuchERC20ToSend);
         require(successPayment, 'Token transfer unsuccessful');
     }
 
     // Check how much erc20 amount is ready for payment
-    function _howManyIntervalsToPay(Order storage order, address _customer) internal returns (uint256){
+    function howManyIntervalsToPayExternal(uint256 _orderId, bytes32 _customerId) external view returns (uint256 howManyPayableIntervals){
+        Order storage order = orders[_orderId];
+        return _howManyIntervalsToPay(order, _customerId);
+    }
+
+    // Check how much erc20 amount is ready for payment
+    function _howManyIntervalsToPay(Order storage order, bytes32 _customerId) internal view returns (uint256){
         // Pick the mode of the invoicing
-        uint256 cycleStartTime = order.startTime; // startTime to find the interval start date
-        uint256 customerCycleStartTime = order.customerOrders[_customer].firstPaymentMadeTimestamp;
-        uint256 numberOfIntervalsPaid = order.customerOrders[_customer].numberOfIntervalsPaid;
+
+        uint256 customerCycleStartTime = order.customerOrders[_customerId].firstPaymentMadeTimestamp;
+        uint256 numberOfIntervalsPaid = order.customerOrders[_customerId].numberOfIntervalsPaid;
 
         require(order.intervalDuration < 10, "The cycle mode is not correctly configured");
 
@@ -809,13 +982,132 @@ contract SubscriptionApp {
         return elapsedCycles - (numberOfIntervalsPaid - 1);
     }
 
-    // @dev customerRenewOrder
-    // @param _orderIds Order ids
-    // @param _approvedPeriods If renewing , it sets this amount, if extending it adds this amount
-    function customerRenewOrder(uint256 _orderId, uint256 _approvedPeriods) external {
+    function processExtraBudgetPayment(
+        uint256 _orderId,
+        bytes32 _customerId,
+        uint256 _extraAmount,
+        uint256 _pendingIntervals
+    ) internal returns (bool success, string memory revertReason) {
+        Order storage order = orders[_orderId];
+        CustomerOrder storage customerOrder = order.customerOrders[_customerId];
+
+        uint256 availableBudget = ((uint256(1) + _pendingIntervals) * customerOrder.extraBudgetPerInterval) - customerOrder.extraBudgetUsed;
+        if (_extraAmount > availableBudget) {
+            return (false, "Exceeds extra budget");
+        }
+
+        if ((availableBudget - _extraAmount) > customerOrder.extraBudgetPerInterval) {
+            customerOrder.extraBudgetUsed = 0;
+        } else {
+            // customerOrder.extraBudgetUsed = customerOrder.extraBudgetPerInterval - remainingBudget;
+            customerOrder.extraBudgetUsed = customerOrder.extraBudgetPerInterval - (availableBudget - _extraAmount);
+        }
+
+        customerOrder.extraBudgetLifetime += _extraAmount;
+
+        PendingExtraBudgetPayment memory newPayment = PendingExtraBudgetPayment({
+        customerId: _customerId,
+        customerAddress: customerIdToAddress[_customerId],
+        timestamp: _getNow(),
+        extraAmount: _extraAmount,
+        processed: false,
+        refunded: false
+        });
+
+        pendingExtraBudgetPaymentListByOrderAndCustomer[_orderId].push(newPayment);
+        uint256 len = pendingExtraBudgetPaymentListByOrderAndCustomer[_orderId].length;
+
+        bool successExtraPayment = IERC20(order.erc20).transferFrom(customerIdToAddress[_customerId], address(this), _extraAmount);
+        if (!successExtraPayment) {
+            return (false, "Fee transfer has failed");
+        }
+
+        emit ExtraBudgetLogged(_orderId, _customerId, customerIdToAddress[_customerId], _extraAmount, _pendingIntervals, len - 1);
+
+        return (true, "");
+    }
+
+    // Function to process pending extra budget payments for a specific order, with an option to limit the range of payments processed
+    // Use 0 as endPaymentIndex to process everything after startPaymentIndex
+    /// @dev processPendingPayments
+    /// @param orderId Order id of the order to process extra pending payments for
+    /// @param startPaymentIndex Index to start processing payments at
+    /// @param endPaymentIndex Index to end processing payments at, or 0 to process all
+    function processPendingPayments(uint256 orderId, uint256 startPaymentIndex, uint256 endPaymentIndex) external {
+        Order storage order = orders[orderId];
+        require(orderId < nextOrder, "Invalid order ID");
+        require(endPaymentIndex == 0 || endPaymentIndex > startPaymentIndex, "End index must be zero or greater than start index");
+
+        uint256 currentTime = _getNow();
+        uint256 totalAmountToTransfer = uint256(0);
+        uint256 paymentsCount = pendingExtraBudgetPaymentListByOrderAndCustomer[orderId].length;
+        uint256 upperBound = (endPaymentIndex == 0 || endPaymentIndex > paymentsCount) ? paymentsCount : endPaymentIndex + 1;
+
+        for (uint256 i = startPaymentIndex; i < upperBound; i++) {
+            PendingExtraBudgetPayment storage payment = pendingExtraBudgetPaymentListByOrderAndCustomer[orderId][i];
+            if (!payment.processed && ((currentTime - payment.timestamp) >= getMerchantSpecificExtraBudgetLockTime(order.merchant))) {
+                totalAmountToTransfer += payment.extraAmount;
+                payment.processed = true;
+                emit ExtraBudgetPaymentProcessed(orderId, payment.customerId, payment.customerAddress, payment.extraAmount, i);
+           }
+        }
+
+        if (totalAmountToTransfer > 0) {
+            address erc20Token = orders[orderId].erc20;
+            address merchant = orders[orderId].merchant;
+          //  require(IERC20(erc20Token).transfer(merchant, totalAmountToTransfer), "Transfer failed");
+
+            uint256 calculateFee = (totalAmountToTransfer * platformFee(merchant)) / (1000);
+
+            (bool successFee) = IERC20(erc20Token).transfer(owner, calculateFee);
+            require(successFee, "Fee transfer has failed");
+
+            (bool successMerchant) = IERC20(erc20Token).transfer(merchant, (totalAmountToTransfer - calculateFee));
+            require(successMerchant, "Merchant transfer has failed");
+
+            emit ExtraBudgetPaidOut(orderId, totalAmountToTransfer, startPaymentIndex, upperBound);
+        }
+    }
+
+    // Function to refund pending extra budget payments for a specific order, with an option to limit the range of payments processed
+    // Use 0 as endPaymentIndex to process everything after startPaymentIndex
+    /// @dev refundPendingExtraPayment
+    /// @param orderId Order id of the order to refund extra pending payments for
+    /// @param startRefundIndex Index to start refund payments at
+    /// @param endRefundIndex Index to end refund payments at, or 0 to process all
+    function refundPendingExtraPayment(uint256 orderId, uint256 startRefundIndex, uint256 endRefundIndex) external onlyOwner {
+        Order storage order = orders[orderId];
+        require(msg.sender == order.merchant || msg.sender == owner, "Only the merchant or the contract owner can issue refunds");
+        require(orderId < nextOrder, "Invalid order ID");
+        require(endRefundIndex == 0 || endRefundIndex > startRefundIndex, "End index must be zero or greater than start index");
+
+        uint256 paymentsCount = pendingExtraBudgetPaymentListByOrderAndCustomer[orderId].length;
+        uint256 upperBound = (endRefundIndex == 0 || endRefundIndex > paymentsCount) ? paymentsCount : endRefundIndex + 1;
+        address erc20Token = orders[orderId].erc20;
+
+        for (uint256 i = startRefundIndex; i < upperBound; i++) {
+            PendingExtraBudgetPayment storage payment = pendingExtraBudgetPaymentListByOrderAndCustomer[orderId][i];
+            if (!payment.processed) { // Payment must not yet be processed, so has not been paid or refunded
+                payment.processed = true;
+                payment.refunded = true;
+                require(IERC20(erc20Token).transfer(payment.customerAddress, payment.extraAmount), "Refund failed"); // Extra amount sent BACK to the customer
+                emit ExtraBudgetRefunded(orderId, payment.customerId, payment.customerAddress, payment.extraAmount, i);
+            }
+        }
+    }
+
+
+    /// @dev CustomerRenewOrder
+    /// @param _orderId Order Id
+    /// @param _customerId Customer id
+    /// @param _extraBudgetPerInterval Extra budget allowed per interval
+    /// @param _approvedPeriods If renewing , it sets this amount, if extending it adds this amount
+    function customerRenewOrder(uint256 _orderId, bytes32 _customerId, uint256 _extraBudgetPerInterval, uint256 _approvedPeriods) external {
         Order storage order = orders[_orderId];
 
-        CustomerOrder storage customerOrder = orders[_orderId].customerOrders[msg.sender];
+        require(msg.sender == customerIdToAddress[_customerId], "Can only renew your own orders");
+
+        CustomerOrder storage customerOrder = orders[_orderId].customerOrders[_customerId];
         require(customerOrder.firstPaymentMadeTimestamp > 0, "Not valid customer to renew");
         if( _approvedPeriods == 0 ){
             _approvedPeriods = order.merchantDefaultNumberOfOrderIntervals;
@@ -835,27 +1127,33 @@ contract SubscriptionApp {
             require(successMerchant, 'Merchant transfer erc20 failed');
 
             // Update customer histories
-            customerHistoryTimestamps[_orderId][msg.sender].push(_getNow());
-            customerHistoryAmounts[_orderId][msg.sender].push( order.chargePerInterval);
-            customerHistoryFeePercentages[_orderId][msg.sender].push(platformFee(order.merchant));
+            customerHistoryTimestamps[_orderId][_customerId].push(_getNow());
+            customerHistoryAmounts[_orderId][_customerId].push( order.chargePerInterval);
+            customerHistoryFeePercentages[_orderId][_customerId].push(platformFee(order.merchant));
 
             customerOrder.approvedPeriodsRemaining = _approvedPeriods;
             customerOrder.numberOfIntervalsPaid = 1;
             customerOrder.firstPaymentMadeTimestamp = _getNow();
-            customerOrder.terminated = false;
             customerOrder.amountPaidToDate = customerOrder.amountPaidToDate + order.chargePerInterval;
+            customerOrder.extraBudgetUsed = 0;
+            customerOrder.extraBudgetPerInterval = _extraBudgetPerInterval;
+            customerOrder.terminated = false;
 
             emit OrderRenewed(
                 _orderId,
+                _customerId,
                 msg.sender,
                 _getNow(),
                 _approvedPeriods,
                 true);
         } else {
             customerOrder.approvedPeriodsRemaining = customerOrder.approvedPeriodsRemaining + _approvedPeriods;
+            customerOrder.extraBudgetUsed = 0;
+            customerOrder.extraBudgetPerInterval = _extraBudgetPerInterval;
 
             emit OrderRenewed(
                 _orderId,
+                _customerId,
                 msg.sender,
                 customerOrder.firstPaymentMadeTimestamp,
                 _approvedPeriods,
@@ -863,23 +1161,26 @@ contract SubscriptionApp {
         }
     }
 
-    // @dev CustomerCancelPayment
-    // @param _orderId Order id
-    // @param _customer Customer address
-    function customerCancelOrder(uint256 _orderId, address _customer) external {
+    /// @dev CustomerCancelPayment
+    /// @param _orderId Order id
+    /// @param _customerId Bytes32 Customer ID
+    function customerCancelOrder(uint256 _orderId, bytes32 _customerId) external {
         Order storage order = orders[_orderId];
-        require((_customer == msg.sender) || (owner == msg.sender)
+        require((customerIdToAddress[_customerId] == msg.sender) || (owner == msg.sender)
             || (order.merchant == msg.sender), "Only the customer, merchant, or owner can cancel an order");
-        order.customerOrders[_customer].terminated = true;
-        order.customerOrders[_customer].approvedPeriodsRemaining = 0;
-        order.customerOrders[_customer].trialIntervalsRemaining = 0;
+        order.customerOrders[_customerId].terminated = true;
+        order.customerOrders[_customerId].approvedPeriodsRemaining = 0;
+        order.customerOrders[_customerId].trialIntervalsRemaining = 0;
+        order.customerOrders[_customerId].extraBudgetPerInterval = 0;
 
         emit OrderCancelled(
             _orderId,
-            _customer);
+            _customerId,
+            customerIdToAddress[_customerId]);
     }
 
-
+    /// @dev Withdraw
+    /// @param _erc20Token ERC20 to withdraw for msg sender merchant
     function withdraw(address _erc20Token) public {
         uint256 value = 0;
         if(msg.sender == owner){
@@ -907,16 +1208,45 @@ contract SubscriptionApp {
         }
     }
 
+    /// @dev Withdraw
+    /// @param _erc20Tokens ERC20 list to withdraw for msg sender merchant
     function withdrawBatch(address[] memory _erc20Tokens) external {
         for(uint256 i=0; i< _erc20Tokens.length; i++){
             withdraw(_erc20Tokens[i]);
         }
     }
 
+    /// @dev Withdraw
+    /// @param _user Which merchant to withdraw for, any account can spend gas to withdraw these funds for another
+    /// @param _erc20Token ERC20 to withdraw
+    function withdrawForUser(address _user, address _erc20Token) public { // For merchant
+        uint256 value = pendingMerchantWithdrawalAmountByMerchantAndToken[_user][_erc20Token];
+            IERC20(_erc20Token).transfer(
+                _user,
+                value);
+            pendingMerchantWithdrawalAmountByMerchantAndToken[_user][_erc20Token] = 0;
+            emit MerchantWithdrawERC20(_erc20Token, _user, value);
+    }
+
+    /// @dev OwnerEmergencyRecover
+    /// @param _amount Amount of erc20
+    /// @param _erc20Token ERC20 to withdraw by Owner in emergencies
+    function ownerEmergencyRecover(uint256 _amount, address _erc20Token) public onlyOwner{
+            IERC20(_erc20Token).transfer(
+                owner,
+                    _amount);
+    }
+
+    /// @dev AddYearsToTimestamp
+    /// @param _timestamp Timestamp
+    /// @param _years Years to add to timestamp
     function addYearsToTimestamp(uint _timestamp, uint _years) external view returns (uint newTimestamp){
         return BokkyPooBahsDateTimeLibrary.addYears(_timestamp, _years);
     }
 
+    /// @dev AddMonthsToTimestamp
+    /// @param _timestamp Timestamp
+    /// @param _months Months to add to timestamp
     function addMonthsToTimestamp(uint _timestamp, uint _months) external view returns (uint newTimestamp){
         return BokkyPooBahsDateTimeLibrary.addMonths(_timestamp, _months);
     }

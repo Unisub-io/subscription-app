@@ -1,18 +1,24 @@
-import { BigInt, Address, log } from "@graphprotocol/graph-ts/index";
+import { BigInt, Address, log, Bytes } from "@graphprotocol/graph-ts/index";
 
 import {
     MerchantWithdrawERC20,
     OrderAccepted,
     OrderCancelled,
     OrderCreated,
-    OrderPaidOut, OrderPaidOutGasSavingMode,
+    OrderPaidOut,
+    OrderPaidOutGasSavingMode,
     OrderPaused,
     OrderRenewed,
     OwnerWithdrawERC20,
     PaymentFailure,
     SubscriptionApp,
     SuccessfulPay,
-    OrderSetMerchantDefaultNumberOfOrderIntervals
+    OrderSetMerchantDefaultNumberOfOrderIntervals,
+    ExtraBudgetLogged,
+    ExtraBudgetPaymentProcessed,
+    ExtraBudgetPaidOut,
+    SetMerchantSpecificExtraBudgetLockTime,
+    ExtraBudgetRefunded
 } from "../generated/SubscriptionApp/SubscriptionApp";
 
 import {
@@ -21,18 +27,30 @@ import {
     CustomerGasSavingDepositHistory,
     CustomerOrder,
     CustomerOrderPaymentHistory,
+    CustomerWallet,
     ERC20Token,
+    ExtraBudgetPaidOutRecord,
+    ExtraBudgetRefundedRecord,
+    ExtraBudgetRequest,
     FailedPayment,
-    Merchant, MerchantERC20DepositsBalance, MerchantWithdrawalHistory,
-    Order, OwnerERC20DepositsBalance, OwnerWithdrawalHistory,
-    SuccessfulPayment
+    Merchant,
+    MerchantERC20DepositsBalance,
+    MerchantWithdrawalHistory,
+    Order,
+    OwnerERC20DepositsBalance,
+    OwnerWithdrawalHistory,
+    SuccessfulPayment,
+    Wallet
 } from "../generated/schema";
 
 import {ERC20} from "../generated/SubscriptionApp/ERC20";
 import {ONE, ZERO} from "./constants";
+import {Entity} from "@graphprotocol/graph-ts";
 //const subsAddress = "0x639e1b11303cb337835b655bfc74de0c4c771c90"; //goerli
 //const subsAddress = "0x4bA75555E692C7C400322C96b9264A0a7f0a4719"; //mumbai
-const subsAddress = "0x5CF590F30236D6193626CAa02Dd4de9e2bBb3394"; //polygon
+//const subsAddress = "0x80E04D1313cFD5AF97B275E0E07021C0bB627F46"; //polygon
+//const subsAddress = "0x6a2245521063C0432b164A7620212a167d7A3b08"; //bsc and mainnet
+const subsAddress = "0x4e84f364aea2ab3853efa73bb1ac7a46a1293a25"; //new poly
 
 export function handleOrderCreated(event: OrderCreated): void {
   let order = new Order(event.params.orderId.toString());
@@ -42,11 +60,11 @@ export function handleOrderCreated(event: OrderCreated): void {
   }
 
   order.chargePerInterval = event.params.chargePerInterval;
+  order.extraBudgetPerInterval = event.params.extraBudgetPerInterval;
   order.paused = false;
   order.merchant = merchant.id;
-  order.numberOfCustomers = ZERO;
   order.totalCharged = ZERO;
-
+  order.numberOfCustomers = ZERO;
   // Process erc20 token
   let erc20Token = ERC20Token.load(event.params.erc20.toHexString());
   if(!erc20Token){
@@ -155,42 +173,92 @@ function getNextPaymentTimestamp(intervalDuration: string, firstTimestamp: BigIn
     }
 }
 
-export function handleOrderAccepted(event: OrderAccepted): void {
-    let customer = Customer.load(event.params.customer.toHexString());
-    if(!customer){
-        customer = new Customer(event.params.customer.toHexString());
+class SetupResult {
+    customer: Customer;
+    wallet: Wallet;
+    customerWallet: CustomerWallet;
+
+    constructor(customer: Customer, wallet: Wallet, customerWallet: CustomerWallet) {
+        this.customer = customer;
+        this.wallet = wallet;
+        this.customerWallet = customerWallet;
     }
-    customer.save();
+}
+
+function setupCustomerAndWallet(
+    customerId: string,
+    customerAddress: string
+): SetupResult {
+    let customer = Customer.load(customerId);
+    if (!customer) {
+        customer = new Customer(customerId);
+        customer.save();
+    }
+
+    let wallet = Wallet.load(customerAddress);
+    if (!wallet) {
+        wallet = new Wallet(customerAddress);
+        wallet.save();
+    }
+
+    let customerWalletId = customerId.concat("-").concat(customerAddress);
+    let customerWallet = CustomerWallet.load(customerWalletId);
+    if (!customerWallet) {
+        customerWallet = new CustomerWallet(customerWalletId);
+        customerWallet.wallet = wallet.id;
+        customerWallet.customer = customer.id;
+        customerWallet.save();
+    }
+
+    return new SetupResult(customer, wallet, customerWallet);
+}
+
+export function handleOrderAccepted(event: OrderAccepted): void {
+    // Set up customer and wallet
+    let setupResult= setupCustomerAndWallet(
+        event.params.customerId.toHexString(),
+        event.params.customerAddress.toHexString()
+    );
+
+    if (setupResult.customer === null || setupResult.wallet === null || setupResult.customerWallet === null) {
+        log.error("One of the entities (Customer, Wallet, CustomerWallet) is null for customerId: {}", [event.params.customerId.toHexString()]);
+        return;
+    }
+    let customer = setupResult.customer;
+    let wallet = setupResult.wallet;
+    let customerWallet = setupResult.customerWallet;
 
     // Get the order
     let order = Order.load(event.params.orderId.toString());
 
     // Setup the customer order and the payment info
-    if(order) {
-        let customerOrderId = event.params.orderId.toString().concat("-").concat(customer.id);
+    if (order) {
+        let customerOrderId = event.params.orderId.toString().concat("-").concat(customerWallet.id);
         let customerOrder = new CustomerOrder(customerOrderId);  //# orderId - customer Eth address
         customerOrder.order = order.id;
-        customerOrder.customer = customer.id;
+        customerOrder.customerWallet = customerWallet.id;
         customerOrder.merchant = order.merchant;
         customerOrder.approvedPeriodsRemaining = event.params.approvedPeriodsRemaining;
         customerOrder.firstPaymentMadeTimestamp = event.params.startTime;
         customerOrder.numberOfIntervalsPaid = BigInt.fromI32(1);
+        customerOrder.trialIntervalsRemaining = event.params.trialIntervalsRemaining;
         customerOrder.terminated = false;
         customerOrder.amountPaidToDate = order.chargePerInterval;
         customerOrder.numberOfPaymentsInHistory = BigInt.fromI32(1);
         customerOrder.lastOutstandingPaymentFailed = false;
         customerOrder.nextPaymentTimestamp = getNextPaymentTimestamp(order.intervalDuration, event.params.startTime, BigInt.fromI32(1));
+        customerOrder.extraBudgetPerInterval = event.params.extraBudgetPerInterval;
         customerOrder.save();
 
         let customerOrderPaymentHistoryId = event.params.orderId.toString().concat("-").concat(customer.id).concat("-0");
         let customerOrderPaymentHistory = new CustomerOrderPaymentHistory(customerOrderPaymentHistoryId);  //# orderId - customer Eth address - index
         customerOrderPaymentHistory.merchant = order.merchant;
-        customerOrderPaymentHistory.customer = customer.id;
+        customerOrderPaymentHistory.customerWallet = customerWallet.id;
         customerOrderPaymentHistory.order = order.id;
         customerOrderPaymentHistory.customerOrder = customerOrder.id;
         customerOrderPaymentHistory.timestamp = event.block.timestamp;
         customerOrderPaymentHistory.txHash = event.transaction.hash;
-        customerOrderPaymentHistory.amount =  order.chargePerInterval;
+        customerOrderPaymentHistory.amount = order.chargePerInterval;
         customerOrderPaymentHistory.tokenSymbol = ERC20Token.load(order.erc20)!.symbol;
         customerOrderPaymentHistory.description = `Payment made for ${order.chargePerInterval} ${ERC20Token.load(order.erc20)!.symbol} (${ERC20Token.load(order.erc20)!.name}) Tokens from ${customer.id} to ${order.merchant} without gas savings mode`;
         customerOrderPaymentHistory.feePercentage = BigInt.fromI32(0);
@@ -198,41 +266,41 @@ export function handleOrderAccepted(event: OrderAccepted): void {
         const contract = SubscriptionApp.bind(Address.fromString(subsAddress));
         let tryFee = contract.try_platformFee(Address.fromString(order.merchant));
         if (!tryFee.reverted) {
-                customerOrderPaymentHistory.feePercentage = tryFee.value;
-          }
+            customerOrderPaymentHistory.feePercentage = tryFee.value;
+        }
         customerOrderPaymentHistory.save();
 
         // Add the successful payment here
         let successfulPaymentId = event.params.orderId.toString().concat("-").concat(customer.id).concat("-").concat(event.transaction.hash.toHexString());
         let successfulPayment = new SuccessfulPayment(successfulPaymentId);
-        successfulPayment.customer = customer.id;
+        successfulPayment.customerWallet = customerWallet.id;
         successfulPayment.merchant = order.merchant;
         successfulPayment.customerOrder = customerOrder.id;
         successfulPayment.order = order.id;
         successfulPayment.txHash = event.transaction.hash;
         successfulPayment.timestamp = event.block.timestamp;
-        successfulPayment.amount =  order.chargePerInterval;
+        successfulPayment.amount = order.chargePerInterval;
         successfulPayment.tokenSymbol = ERC20Token.load(order.erc20)!.symbol;
         successfulPayment.description = `Successful Payment made for ${order.chargePerInterval} ${ERC20Token.load(order.erc20)!.symbol} (${ERC20Token.load(order.erc20)!.name}) Tokens from ${customer.id} to ${order.merchant}`;
         successfulPayment.save();
 
         // Query the erc20 contract as we need to update the customer erc20 approval and balance
-        let approvalAndBalanceId = order.erc20.toString().concat("-").concat(customer.id);
+        let approvalAndBalanceId = order.erc20.toString().concat("-").concat(customerWallet.id);
         let approvalAndBalance = CustomerERC20ApprovalAndBalance.load(approvalAndBalanceId);
-        if(!approvalAndBalance){
+        if (!approvalAndBalance) {
             approvalAndBalance = new CustomerERC20ApprovalAndBalance(approvalAndBalanceId);
             approvalAndBalance.erc20 = order.erc20;
-            approvalAndBalance.customer = customer.id;
+            approvalAndBalance.customerWallet = customerWallet.id;
         }
-         const erc20Contract = ERC20.bind(Address.fromString(order.erc20));
-         let tryAllowance = erc20Contract.try_allowance(Address.fromString(customer.id), Address.fromString(subsAddress));
-         if (!tryAllowance.reverted) {
-                approvalAndBalance.currentAllowance = tryAllowance.value;
-         }
-         let tryBalance = erc20Contract.try_balanceOf(Address.fromString(customer.id));
-         if (!tryBalance.reverted) {
-                approvalAndBalance.currentBalance = tryBalance.value;
-         }
+        const erc20Contract = ERC20.bind(Address.fromString(order.erc20));
+        let tryAllowance = erc20Contract.try_allowance(Address.fromString(wallet.id), Address.fromString(subsAddress));
+        if (!tryAllowance.reverted) {
+            approvalAndBalance.currentAllowance = tryAllowance.value;
+        }
+        let tryBalance = erc20Contract.try_balanceOf(Address.fromString(wallet.id));
+        if (!tryBalance.reverted) {
+            approvalAndBalance.currentBalance = tryBalance.value;
+        }
         approvalAndBalance.save();
 
         order.totalCharged = order.totalCharged.plus(order.chargePerInterval);
@@ -241,9 +309,40 @@ export function handleOrderAccepted(event: OrderAccepted): void {
     }
 }
 
+
 export function handleOrderPaidOut(event: OrderPaidOut): void {
- let customer = Customer.load(event.params.customer.toHexString());
-    if(customer) {
+    // Get the customers address
+    let subsapp = SubscriptionApp.bind(Address.fromString(subsAddress));
+
+    let tryCustomerIdToAddress = subsapp.try_customerIdToAddress(event.params.customerId);
+    if (tryCustomerIdToAddress.reverted) {
+        // Log the error for debugging purposes
+        log.warning("Transaction reverted for customerId: {}", [event.params.customerId.toHexString()]);
+        return;
+    }
+
+    let userAddress = tryCustomerIdToAddress.value;
+
+    if (!userAddress || userAddress.toHexString() == "") {
+        // Log the error for debugging purposes
+        log.error("User address is null or empty for customerId: {}", [event.params.customerId.toHexString()]);
+        return;
+    }
+
+    let setupResult= setupCustomerAndWallet(
+        event.params.customerId.toHexString(),
+        userAddress.toHexString()
+    );
+
+    if (setupResult.customer === null || setupResult.wallet === null || setupResult.customerWallet === null) {
+        log.error("One of the entities (Customer, Wallet, CustomerWallet) is null for customerId: {}", [event.params.customerId.toHexString()]);
+        return;
+    }
+    let customer = setupResult.customer;
+    let wallet = setupResult.wallet;
+    let customerWallet = setupResult.customerWallet;
+
+    if(customerWallet) {
         // Get the order
         let order = Order.load(event.params.orderId.toString());
 
@@ -257,20 +356,21 @@ export function handleOrderPaidOut(event: OrderPaidOut): void {
                 let tryGetCustomerOrder = contract.try_getCustomerOrder(event.params.orderId, Address.fromString(customer.id));
                 if (!tryGetCustomerOrder.reverted) {
 
-                    customerOrder.approvedPeriodsRemaining = tryGetCustomerOrder.value.value1;
-                    customerOrder.firstPaymentMadeTimestamp = tryGetCustomerOrder.value.value2;
-                    customerOrder.numberOfIntervalsPaid = tryGetCustomerOrder.value.value3;
-                    customerOrder.terminated = tryGetCustomerOrder.value.value4;
-                    customerOrder.amountPaidToDate = tryGetCustomerOrder.value.value5;
+                    customerOrder.approvedPeriodsRemaining = tryGetCustomerOrder.value.value5;
+                    customerOrder.trialIntervalsRemaining = tryGetCustomerOrder.value.value6;
+                    customerOrder.firstPaymentMadeTimestamp = tryGetCustomerOrder.value.value7;
+                    customerOrder.numberOfIntervalsPaid = tryGetCustomerOrder.value.value8;
+                    customerOrder.terminated = tryGetCustomerOrder.value.value9;
+                    customerOrder.amountPaidToDate = tryGetCustomerOrder.value.value10;
                     customerOrder.lastOutstandingPaymentFailed = false;
-                    customerOrder.nextPaymentTimestamp = getNextPaymentTimestamp(order.intervalDuration, tryGetCustomerOrder.value.value2, tryGetCustomerOrder.value.value3);
+                    customerOrder.nextPaymentTimestamp = getNextPaymentTimestamp(order.intervalDuration, tryGetCustomerOrder.value.value7, tryGetCustomerOrder.value.value8);
                     customerOrder.save();
                 }
 
                 let customerOrderPaymentHistoryId = event.params.orderId.toString().concat("-").concat(customer.id).concat("-").concat(customerOrder.numberOfPaymentsInHistory.toString());
                 let customerOrderPaymentHistory = new CustomerOrderPaymentHistory(customerOrderPaymentHistoryId);  //# orderId - customer Eth address - index
                 customerOrderPaymentHistory.merchant = order.merchant;
-                customerOrderPaymentHistory.customer = customer.id;
+                customerOrderPaymentHistory.customerWallet = customerWallet.id;
                 customerOrderPaymentHistory.order = order.id;
                 customerOrderPaymentHistory.customerOrder = customerOrder.id;
                 customerOrderPaymentHistory.timestamp = event.block.timestamp;
@@ -289,7 +389,7 @@ export function handleOrderPaidOut(event: OrderPaidOut): void {
 
                 let successfulPaymentId = event.params.orderId.toString().concat("-").concat(customer.id).concat("-").concat(event.transaction.hash.toHexString());
                 let successfulPayment = new SuccessfulPayment(successfulPaymentId);
-                successfulPayment.customer = customer.id;
+                successfulPayment.customerWallet = customerWallet.id;
                 successfulPayment.merchant = order.merchant;
                 successfulPayment.customerOrder = customerOrder.id;
                 successfulPayment.order = order.id;
@@ -304,15 +404,15 @@ export function handleOrderPaidOut(event: OrderPaidOut): void {
                 customerOrder.save();
 
                 // Query the erc20 contract as we need to update the customer erc20 approval and balance
-                let approvalAndBalanceId = order.erc20.toString().concat("-").concat(customer.id);
+                let approvalAndBalanceId = order.erc20.toString().concat("-").concat(customerWallet.id);
                 let approvalAndBalance = CustomerERC20ApprovalAndBalance.load(approvalAndBalanceId);
                 if (approvalAndBalance) {
                     const erc20Contract = ERC20.bind(Address.fromString(order.erc20));
-                    let tryAllowance = erc20Contract.try_allowance(Address.fromString(customer.id), Address.fromString(subsAddress));
+                    let tryAllowance = erc20Contract.try_allowance(Address.fromString(wallet.id), Address.fromString(subsAddress));
                     if (!tryAllowance.reverted) {
                         approvalAndBalance.currentAllowance = tryAllowance.value;
                     }
-                    let tryBalance = erc20Contract.try_balanceOf(Address.fromString(customer.id));
+                    let tryBalance = erc20Contract.try_balanceOf(Address.fromString(wallet.id));
                     if (!tryBalance.reverted) {
                         approvalAndBalance.currentBalance = tryBalance.value;
                     }
@@ -328,8 +428,29 @@ export function handleOrderPaidOut(event: OrderPaidOut): void {
 }
 
 export function handleOrderPaidOutGasSavingMode (event: OrderPaidOutGasSavingMode): void {
- let customer = Customer.load(event.params.customer.toHexString());
-    if(customer) {
+// Get the customers address
+    let subsapp = SubscriptionApp.bind(Address.fromString(subsAddress));
+    let tryCustomerIdToAddress = subsapp.try_customerIdToAddress(event.params.customerId);
+    if (tryCustomerIdToAddress.reverted) {
+        return;
+    }
+
+    let userAddress = tryCustomerIdToAddress.value;
+
+    let setupResult= setupCustomerAndWallet(
+        event.params.customerId.toHexString(),
+        userAddress.toHexString()
+    );
+
+    if (setupResult.customer === null || setupResult.wallet === null || setupResult.customerWallet === null) {
+        log.error("One of the entities (Customer, Wallet, CustomerWallet) is null for customerId: {}", [event.params.customerId.toHexString()]);
+        return;
+    }
+    let customer = setupResult.customer;
+    let wallet = setupResult.wallet;
+    let customerWallet = setupResult.customerWallet;
+
+    if(customerWallet) {
         // Get the order
         let order = Order.load(event.params.orderId.toString());
 
@@ -342,20 +463,21 @@ export function handleOrderPaidOutGasSavingMode (event: OrderPaidOutGasSavingMod
                 const contract = SubscriptionApp.bind(Address.fromString(subsAddress));
                 let tryGetCustomerOrder = contract.try_getCustomerOrder(event.params.orderId, Address.fromString(customer.id));
                 if (!tryGetCustomerOrder.reverted) {
-                    customerOrder.approvedPeriodsRemaining = tryGetCustomerOrder.value.value1;
-                    customerOrder.firstPaymentMadeTimestamp = tryGetCustomerOrder.value.value2;
-                    customerOrder.numberOfIntervalsPaid = tryGetCustomerOrder.value.value3;
-                    customerOrder.terminated = tryGetCustomerOrder.value.value4;
-                    customerOrder.amountPaidToDate = tryGetCustomerOrder.value.value5;
+                    customerOrder.approvedPeriodsRemaining = tryGetCustomerOrder.value.value5;
+                    customerOrder.trialIntervalsRemaining = tryGetCustomerOrder.value.value6;
+                    customerOrder.firstPaymentMadeTimestamp = tryGetCustomerOrder.value.value7;
+                    customerOrder.numberOfIntervalsPaid = tryGetCustomerOrder.value.value8;
+                    customerOrder.terminated = tryGetCustomerOrder.value.value9;
+                    customerOrder.amountPaidToDate = tryGetCustomerOrder.value.value10;
                     customerOrder.lastOutstandingPaymentFailed = false;
-                    customerOrder.nextPaymentTimestamp = getNextPaymentTimestamp(order.intervalDuration, tryGetCustomerOrder.value.value2, tryGetCustomerOrder.value.value3);
+                    customerOrder.nextPaymentTimestamp = getNextPaymentTimestamp(order.intervalDuration, tryGetCustomerOrder.value.value7, tryGetCustomerOrder.value.value8);
                     customerOrder.save();
                 }
 
                 let customerOrderPaymentHistoryId = event.params.orderId.toString().concat("-").concat(customer.id).concat("-").concat(customerOrder.numberOfPaymentsInHistory.toString());
                 let customerOrderPaymentHistory = new CustomerOrderPaymentHistory(customerOrderPaymentHistoryId);  //# orderId - customer Eth address - index
                 customerOrderPaymentHistory.merchant = order.merchant;
-                customerOrderPaymentHistory.customer = customer.id;
+                customerOrderPaymentHistory.customerWallet = customerWallet.id;
                 customerOrderPaymentHistory.order = order.id;
                 customerOrderPaymentHistory.customerOrder = customerOrder.id;
                 customerOrderPaymentHistory.timestamp = event.block.timestamp;
@@ -370,9 +492,11 @@ export function handleOrderPaidOutGasSavingMode (event: OrderPaidOutGasSavingMod
                     customerOrderPaymentHistory.feePercentage = tryFee.value;
                 }
 
+                customerOrderPaymentHistory.save();
+
                 let customerGasSavingDepositHistory = new CustomerGasSavingDepositHistory(customerOrderPaymentHistoryId);  //# orderId - customer Eth address - index
                 customerGasSavingDepositHistory.merchant = order.merchant;
-                customerGasSavingDepositHistory.customer = customer.id;
+                customerGasSavingDepositHistory.customerWallet = customerWallet.id;
                 customerGasSavingDepositHistory.order = order.id;
                 customerGasSavingDepositHistory.customerOrder = customerOrder.id;
                 customerGasSavingDepositHistory.timestamp = event.block.timestamp;
@@ -401,11 +525,9 @@ export function handleOrderPaidOutGasSavingMode (event: OrderPaidOutGasSavingMod
                 merchantERC20DepositsBalance.save();
 
 
-                customerOrderPaymentHistory.save();
-
                 let successfulPaymentId = event.params.orderId.toString().concat("-").concat(customer.id).concat("-").concat(event.transaction.hash.toHexString());
                 let successfulPayment = new SuccessfulPayment(successfulPaymentId);
-                successfulPayment.customer = customer.id;
+                successfulPayment.customerWallet = customerWallet.id;
                 successfulPayment.merchant = order.merchant;
                 successfulPayment.customerOrder = customerOrder.id;
                 successfulPayment.order = order.id;
@@ -420,15 +542,15 @@ export function handleOrderPaidOutGasSavingMode (event: OrderPaidOutGasSavingMod
                 customerOrder.save();
 
                 // Query the erc20 contract as we need to update the customer erc20 approval and balance
-                let approvalAndBalanceId = order.erc20.toString().concat("-").concat(customer.id);
+                let approvalAndBalanceId = order.erc20.toString().concat("-").concat(customerWallet.id);
                 let approvalAndBalance = CustomerERC20ApprovalAndBalance.load(approvalAndBalanceId);
                 if (approvalAndBalance) {
                     const erc20Contract = ERC20.bind(Address.fromString(order.erc20));
-                    let tryAllowance = erc20Contract.try_allowance(Address.fromString(customer.id), Address.fromString(subsAddress));
+                    let tryAllowance = erc20Contract.try_allowance(Address.fromString(wallet.id), Address.fromString(subsAddress));
                     if (!tryAllowance.reverted) {
                         approvalAndBalance.currentAllowance = tryAllowance.value;
                     }
-                    let tryBalance = erc20Contract.try_balanceOf(Address.fromString(customer.id));
+                    let tryBalance = erc20Contract.try_balanceOf(Address.fromString(wallet.id));
                     if (!tryBalance.reverted) {
                         approvalAndBalance.currentBalance = tryBalance.value;
                     }
@@ -444,8 +566,20 @@ export function handleOrderPaidOutGasSavingMode (event: OrderPaidOutGasSavingMod
 }
 
 export function handleOrderRenewed(event: OrderRenewed): void {
-    let customer = Customer.load(event.params.customer.toHexString());
-    if(customer) {
+    let setupResult= setupCustomerAndWallet(
+        event.params.customerId.toHexString(),
+        event.params.customerAddress.toHexString()
+    );
+
+    if (setupResult.customer === null || setupResult.wallet === null || setupResult.customerWallet === null) {
+        log.error("One of the entities (Customer, Wallet, CustomerWallet) is null for customerId: {}", [event.params.customerId.toHexString()]);
+        return;
+    }
+    let customer = setupResult.customer;
+    let wallet = setupResult.wallet;
+    let customerWallet = setupResult.customerWallet;
+
+    if(customerWallet) {
         let order = Order.load(event.params.orderId.toString());
         if (order) {
             let customerOrderId = event.params.orderId.toString().concat("-").concat(customer.id);
@@ -466,7 +600,7 @@ export function handleOrderRenewed(event: OrderRenewed): void {
                     let customerOrderPaymentHistoryId = event.params.orderId.toString().concat("-").concat(customer.id).concat("-").concat(customerOrder.numberOfPaymentsInHistory.toString());
                     let customerOrderPaymentHistory = new CustomerOrderPaymentHistory(customerOrderPaymentHistoryId);  //# orderId - customer Eth address - index
                     customerOrderPaymentHistory.merchant = order.merchant;
-                    customerOrderPaymentHistory.customer = customer.id;
+                    customerOrderPaymentHistory.customerWallet = customerWallet.id;
                     customerOrderPaymentHistory.order = order.id;
                     customerOrderPaymentHistory.customerOrder = customerOrder.id;
                     customerOrderPaymentHistory.timestamp = event.block.timestamp;
@@ -486,7 +620,7 @@ export function handleOrderRenewed(event: OrderRenewed): void {
                     // Add the successful payment here
                     let successfulPaymentId = event.params.orderId.toString().concat("-").concat(customer.id).concat("-").concat(event.transaction.hash.toHexString());
                     let successfulPayment = new SuccessfulPayment(successfulPaymentId);
-                    successfulPayment.customer = customer.id;
+                    successfulPayment.customerWallet = customerWallet.id;
                     successfulPayment.merchant = order.merchant;
                     successfulPayment.customerOrder = customerOrder.id;
                     successfulPayment.order = order.id;
@@ -498,19 +632,19 @@ export function handleOrderRenewed(event: OrderRenewed): void {
                     successfulPayment.save();
 
                     // Query the erc20 contract as we need to update the customer erc20 approval and balance
-                    let approvalAndBalanceId = order.erc20.toString().concat("-").concat(customer.id);
+                    let approvalAndBalanceId = order.erc20.toString().concat("-").concat(customerWallet.id);
                     let approvalAndBalance = CustomerERC20ApprovalAndBalance.load(approvalAndBalanceId);
                     if (!approvalAndBalance) {
                         approvalAndBalance = new CustomerERC20ApprovalAndBalance(approvalAndBalanceId);
                         approvalAndBalance.erc20 = order.erc20;
-                        approvalAndBalance.customer = customer.id;
+                        approvalAndBalance.customerWallet = customerWallet.id;
                     }
                     const erc20Contract = ERC20.bind(Address.fromString(order.erc20));
-                    let tryAllowance = erc20Contract.try_allowance(Address.fromString(customer.id), Address.fromString(subsAddress));
+                    let tryAllowance = erc20Contract.try_allowance(Address.fromString(wallet.id), Address.fromString(subsAddress));
                     if (!tryAllowance.reverted) {
                         approvalAndBalance.currentAllowance = tryAllowance.value;
                     }
-                    let tryBalance = erc20Contract.try_balanceOf(Address.fromString(customer.id));
+                    let tryBalance = erc20Contract.try_balanceOf(Address.fromString(wallet.id));
                     if (!tryBalance.reverted) {
                         approvalAndBalance.currentBalance = tryBalance.value;
                     }
@@ -524,15 +658,15 @@ export function handleOrderRenewed(event: OrderRenewed): void {
                     customerOrder.save();
 
                     // Query the erc20 contract as we need to update the customer erc20 approval and balance
-                    let approvalAndBalanceId = order.erc20.toString().concat("-").concat(customer.id);
+                    let approvalAndBalanceId = order.erc20.toString().concat("-").concat(customerWallet.id);
                     let approvalAndBalance = CustomerERC20ApprovalAndBalance.load(approvalAndBalanceId);
                     if (approvalAndBalance) {
                         const erc20Contract = ERC20.bind(Address.fromString(order.erc20));
-                        let tryAllowance = erc20Contract.try_allowance(Address.fromString(customer.id), Address.fromString(subsAddress));
+                        let tryAllowance = erc20Contract.try_allowance(Address.fromString(wallet.id), Address.fromString(subsAddress));
                         if (!tryAllowance.reverted) {
                             approvalAndBalance.currentAllowance = tryAllowance.value;
                         }
-                        let tryBalance = erc20Contract.try_balanceOf(Address.fromString(customer.id));
+                        let tryBalance = erc20Contract.try_balanceOf(Address.fromString(wallet.id));
                         if (!tryBalance.reverted) {
                             approvalAndBalance.currentBalance = tryBalance.value;
                         }
@@ -545,7 +679,17 @@ export function handleOrderRenewed(event: OrderRenewed): void {
 }
 
 export function handleOrderCancelled(event: OrderCancelled): void {
-    let customer = Customer.load(event.params.customer.toHexString());
+    let setupResult= setupCustomerAndWallet(
+        event.params.customerId.toHexString(),
+        event.params.customerAddress.toHexString()
+    );
+
+    if (setupResult.customer === null || setupResult.wallet === null || setupResult.customerWallet === null) {
+        log.error("One of the entities (Customer, Wallet, CustomerWallet) is null for customerId: {}", [event.params.customerId.toHexString()]);
+        return;
+    }
+    let customer = setupResult.customer;
+
     if(customer) {
         let order = Order.load(event.params.orderId.toString());
         if (order) {
@@ -570,7 +714,19 @@ export function handleOrderPaused(event: OrderPaused): void {
 
 // This gets called on order paid out
  export function handleSuccessfulPay(event: SuccessfulPay): void {
-     let customer = Customer.load(event.params.customer.toHexString());
+     let setupResult= setupCustomerAndWallet(
+         event.params.customerId.toHexString(),
+         event.params.customerAddress.toHexString()
+     );
+
+     if (setupResult.customer === null || setupResult.wallet === null || setupResult.customerWallet === null) {
+         log.error("One of the entities (Customer, Wallet, CustomerWallet) is null for customerId: {}", [event.params.customerId.toHexString()]);
+         return;
+     }
+     let customer = setupResult.customer;
+     // let wallet = setupResult.wallet;
+     // let customerWallet = setupResult.customerWallet;
+
      if(customer) {
          let order = Order.load(event.params.orderId.toString());
          if (order) {
@@ -599,7 +755,19 @@ export function handleOrderPaused(event: OrderPaused): void {
  }
 
 export function handlePaymentFailure(event: PaymentFailure): void {
-    let customer = Customer.load(event.params.customer.toHexString());
+    let setupResult= setupCustomerAndWallet(
+        event.params.customerId.toHexString(),
+        event.params.customerAddress.toHexString()
+    );
+
+    if (setupResult.customer === null || setupResult.wallet === null || setupResult.customerWallet === null) {
+        log.error("One of the entities (Customer, Wallet, CustomerWallet) is null for customerId: {}", [event.params.customerId.toHexString()]);
+        return;
+    }
+    let customer = setupResult.customer;
+    // let wallet = setupResult.wallet;
+    let customerWallet = setupResult.customerWallet;
+
     if(customer) {
         let order = Order.load(event.params.orderId.toString());
         if (order) {
@@ -608,7 +776,7 @@ export function handlePaymentFailure(event: PaymentFailure): void {
             if(customerOrder) {
                 let failedPaymentId = event.params.orderId.toString().concat("-").concat(customer.id).concat("-").concat(event.transaction.hash.toHexString());
                 let failedPayment = new FailedPayment(failedPaymentId);
-                failedPayment.customer = customer.id;
+                failedPayment.customerWallet = customerWallet.id;
                 failedPayment.merchant = order.merchant;
                 failedPayment.customerOrder = customerOrder.id;
                 failedPayment.order = order.id;
@@ -666,3 +834,106 @@ export function handleOrderSetMerchantDefaultNumberOfOrderIntervals(event: Order
     }
 }
 
+export function handleExtraBudgetLogged(event: ExtraBudgetLogged): void {
+    let setupResult= setupCustomerAndWallet(
+        event.params.customerId.toHexString(),
+        event.params.customerAddress.toHexString()
+    );
+
+    if (setupResult.customer === null || setupResult.wallet === null || setupResult.customerWallet === null) {
+        log.error("One of the entities (Customer, Wallet, CustomerWallet) is null for customerId: {}", [event.params.customerId.toHexString()]);
+        return;
+    }
+
+    let customerWallet = setupResult.customerWallet;
+    let indexOfRequest = event.params.index;
+
+    let order = Order.load(event.params.orderId.toString());
+    if(order){
+        let extraBudgetRequestId = order.id.concat("-").concat(indexOfRequest.toString());
+        let request = new ExtraBudgetRequest(extraBudgetRequestId);
+        if(order && customerWallet && indexOfRequest) {
+            request.customerWallet = customerWallet.id;
+            request.index = indexOfRequest;
+            request.order = order.id;
+            request.pendingPeriods = event.params.pendingPeriods;
+            request.extraAmount = event.params.extraAmount;
+            request.status = "PENDING";
+            request.requestTxHash = event.transaction.hash;
+            request.save();
+        }
+    }
+}
+
+export function handleExtraBudgetPaymentProcessed(event: ExtraBudgetPaymentProcessed): void {
+    // Create new or load a budget paid out object that will act to keep track of specific payments
+    let indexOfRequest = event.params.index;
+
+    let order = Order.load(event.params.orderId.toString());
+    if(order){
+        let extraBudgetRequestId = order.id.concat("-").concat(indexOfRequest.toString());
+
+        let paidOutEntity = ExtraBudgetPaidOutRecord.load(event.transaction.hash.toHexString());
+        if (!paidOutEntity) {
+            paidOutEntity = new ExtraBudgetPaidOutRecord(event.transaction.hash.toHexString());
+            paidOutEntity.order = order.id;
+            paidOutEntity.merchant = order.merchant;
+            // Total amount filled out later
+            // Start index filled out later
+            // End index filled out later
+            paidOutEntity.save();
+        }
+
+        let request = ExtraBudgetRequest.load(extraBudgetRequestId);
+        if(request){
+            request.status = "PAID";
+            // request.requestTxHash = event.transaction.hash; // The request tx hash is from the original tx, the settle tx hash is id of paid out entity
+            request.settleTransaction = paidOutEntity.id;
+            request.save();
+        }
+    }
+}
+
+export function handleExtraBudgetPaidOut(event: ExtraBudgetPaidOut): void {
+    let paidOutEntity = ExtraBudgetPaidOutRecord.load(event.transaction.hash.toHexString());
+    if (paidOutEntity) {
+        paidOutEntity.totalAmount = event.params.amount;
+        paidOutEntity.startIndex = event.params.startPaymentIndex;
+        paidOutEntity.endIndex = event.params.endPaymentIndex;
+        paidOutEntity.save();
+    }
+}
+
+export function handleExtraBudgetRefunded(event: ExtraBudgetRefunded): void {
+    let indexOfRequest = event.params.index;
+
+    let order = Order.load(event.params.orderId.toString());
+    if(order) {
+        let extraBudgetRequestId = order.id.concat("-").concat(indexOfRequest.toString());
+
+        let request = ExtraBudgetRequest.load(extraBudgetRequestId);
+
+        let refundRecord = new ExtraBudgetRefundedRecord(event.transaction.hash.toHexString());
+        if(refundRecord && request){
+            refundRecord.order = order.id;
+            refundRecord.merchant = order.merchant;
+            refundRecord.customerWallet = request.customerWallet;
+            refundRecord.refundedAmount = event.params.extraAmount;
+            refundRecord.request = request.id;
+            refundRecord.save();
+
+            request.status = "REFUNDED";
+            request.refundTransaction = refundRecord.id;
+            request.save();
+        }
+    }
+}
+
+export function handleSetMerchantSpecificExtraBudgetLockTime(event: SetMerchantSpecificExtraBudgetLockTime): void {
+    // For a merchant, need to set the specific extra budget lock time custom for them if it exists. This goes on a merchant object
+    let merchant = Merchant.load(event.params.merchant.toHexString());
+    if(merchant){
+        merchant.merchantSpecificExtraBudgetLockTime = event.params.customLockTime;
+        merchant.save();
+    }
+}
