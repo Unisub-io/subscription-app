@@ -13,6 +13,7 @@ type Order @entity {
   customerGasSavingDepositHistory: [CustomerGasSavingDepositHistory!]! @derivedFrom(field:"order")
   paused: Boolean!
   merchantDefaultNumberOfOrderIntervals: BigInt!
+  passthrough: String!
   extraBudgetRequests: [ExtraBudgetRequest!]! @derivedFrom(field:"order")
   extraBudgetPaymentsHistory: [ExtraBudgetPaidOutRecord!]! @derivedFrom(field:"order")
   extraBudgetRefundedRecordList: [ExtraBudgetRefundedRecord!]! @derivedFrom(field:"order")
@@ -21,6 +22,7 @@ type Order @entity {
 type CustomerOrder @entity {
   id: ID!
   order: Order!
+  customer: Customer!
   customerWallet: CustomerWallet!
   merchant: Merchant!
   approvedPeriodsRemaining: BigInt!
@@ -33,6 +35,9 @@ type CustomerOrder @entity {
   amountPaidToDate: BigInt!
   numberOfPaymentsInHistory: BigInt!
   extraBudgetPerInterval: BigInt!
+  extraBudgetChargedCurrentInterval: BigInt!
+  lastExtraBudgetChargeTimestamp: BigInt!
+  passthrough: String!
   customerOrderPaymentHistory: [CustomerOrderPaymentHistory!]! @derivedFrom(field:"customerOrder")
   customerGasSavingDepositHistory: [CustomerGasSavingDepositHistory!]! @derivedFrom(field:"customerOrder")
 }
@@ -40,6 +45,7 @@ type CustomerOrder @entity {
 type CustomerOrderPaymentHistory @entity {
   id: ID! # orderId - customer Eth address - index of the payment in array
   merchant: Merchant!
+  customer: Customer!
   customerWallet: CustomerWallet!
   order: Order!
   customerOrder: CustomerOrder!
@@ -50,11 +56,13 @@ type CustomerOrderPaymentHistory @entity {
   tokenSymbol: String!
   feePercentage: BigInt!
   gasSaving: Boolean!
+  passthrough: String!
   customerGasSavingDepositHistory: CustomerGasSavingDepositHistory
 }
 type CustomerGasSavingDepositHistory @entity {
   id: ID! # orderId - customer Eth address - index of the payment in array
   merchant: Merchant!
+  customer: Customer!
   customerWallet: CustomerWallet!
   order: Order!
   customerOrder: CustomerOrder!
@@ -62,6 +70,7 @@ type CustomerGasSavingDepositHistory @entity {
   txHash: Bytes!
   merchantAmount: BigInt!
   feeAmount: BigInt!
+  passthrough: String!
 }
 
 type ERC20Token @entity {
@@ -76,6 +85,7 @@ type ERC20Token @entity {
 type CustomerERC20ApprovalAndBalance @entity {
     id: ID! # erc20 token and customer eth address
     erc20: ERC20Token!
+    customer: Customer!
     customerWallet: CustomerWallet!
     currentAllowance: BigInt
     currentBalance: BigInt
@@ -118,6 +128,7 @@ type Customer @entity {
 type SuccessfulPayment @entity {
     id: ID! # order id - customer address - transaction hash
     merchant: Merchant!
+    customer: Customer!
     customerWallet: CustomerWallet!
     customerOrder: CustomerOrder!
     order: Order!
@@ -126,11 +137,13 @@ type SuccessfulPayment @entity {
     amount: BigInt!
     description: String!
     tokenSymbol: String!
+    passthrough: String!
 }
 
 type FailedPayment @entity {
     id: ID! # order id - customer address - transaction hash
     merchant: Merchant!
+    customer: Customer!
     customerWallet: CustomerWallet!
     customerOrder: CustomerOrder!
     order: Order!
@@ -139,6 +152,8 @@ type FailedPayment @entity {
     amount: BigInt!
     description: String!
     tokenSymbol: String!
+    reason: String!
+    passthrough: String!
 }
 
 type OwnerERC20DepositsBalance @entity {
@@ -180,12 +195,16 @@ type ExtraBudgetRequest @entity {
     id: ID!
     merchant: Merchant!
     order: Order!
+    customer: Customer!
     customerWallet: CustomerWallet!
     index: BigInt!
     extraAmount: BigInt!
     pendingPeriods: BigInt!
     status: ExtraBudgetRequestStatus!
     requestTxHash: Bytes!
+    passthrough: String!
+    timestamp: BigInt
+    availablePaymentTimestamp: BigInt
     settleTransaction: ExtraBudgetPaidOutRecord # The idea here is to create it from the tx hash when the tx is settled
     refundTransaction: ExtraBudgetRefundedRecord # The idea here is to create it from the tx hash when the tx is settled
 }
@@ -198,13 +217,16 @@ type ExtraBudgetPaidOutRecord @entity {
     startIndex: BigInt
     endIndex: BigInt
     requests: [ExtraBudgetRequest!]! @derivedFrom(field:"settleTransaction")
+    timestamp: BigInt
 }
 
 type ExtraBudgetRefundedRecord @entity {
     id: ID! # Tx hash
     order: Order!
     merchant: Merchant!
+    customer: Customer!
     customerWallet: CustomerWallet!
     refundedAmount: BigInt!
     request: ExtraBudgetRequest!
+    timestamp: BigInt
 }

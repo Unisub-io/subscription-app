@@ -10,7 +10,7 @@ dataSources:
     source:
       address: "0xA5e2408D048Eb4ad52aA212Fc9Fd64F9e0054adb"
       abi: SubscriptionApp
-      startBlock: 59284623
+      startBlock: 62005098
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.6
@@ -23,31 +23,31 @@ dataSources:
         - name: ERC20
           file: ./abis/ERC20.json
       eventHandlers:
-        - event: OrderCreated(uint256,address,uint256,uint256,uint256,uint256,address,uint256,uint256)
+        - event: OrderCreated(uint256,address,uint256,uint256,uint256,uint256,address,uint256,uint256,string)
           handler: handleOrderCreated
         - event: OrderSetMerchantDefaultNumberOfOrderIntervals(uint256,uint256,address)
           handler: handleOrderSetMerchantDefaultNumberOfOrderIntervals
-        - event: OrderAccepted(uint256,bytes32,address,uint256,uint256,uint256,uint256)
+        - event: OrderAccepted(uint256,bytes32,address,uint256,uint256,uint256,uint256,string)
           handler: handleOrderAccepted
-        - event: OrderPaidOut(uint256,bytes32,uint256,uint256,uint256,address)
+        - event: OrderPaidOut(uint256,bytes32,uint256,uint256,uint256,address,string)
           handler: handleOrderPaidOut
-        - event: OrderPaidOutGasSavingMode(uint256,bytes32,uint256,uint256,uint256,address)
+        - event: OrderPaidOutGasSavingMode(uint256,bytes32,uint256,uint256,uint256,address,string)
           handler: handleOrderPaidOutGasSavingMode
-        - event: OrderRenewed(uint256,bytes32,address,uint256,uint256,bool)
+        - event: OrderRenewed(uint256,bytes32,address,uint256,uint256,bool,string)
           handler: handleOrderRenewed
         - event: OrderCancelled(uint256,bytes32,address)
           handler: handleOrderCancelled
         - event: OrderPaused(uint256,bool,address)
           handler: handleOrderPaused
-        - event: SuccessfulPay(uint256,bytes32,address)
+        - event: SuccessfulPay(uint256,bytes32,address,string)
           handler: handleSuccessfulPay
-        - event: PaymentFailure(string,uint256,bytes32,address)
+        - event: PaymentFailure(string,uint256,bytes32,address,string)
           handler: handlePaymentFailure
         - event: MerchantWithdrawERC20(address,address,uint256)
           handler: handleMerchantWithdrawERC20
         - event: OwnerWithdrawERC20(address,uint256)
           handler: handleOwnerWithdrawERC20
-        - event: ExtraBudgetLogged(uint256,bytes32,address,uint256,uint256,uint256)
+        - event: ExtraBudgetLogged(uint256,bytes32,address,uint256,uint256,uint256,string)
           handler: handleExtraBudgetLogged
         - event: ExtraBudgetPaymentProcessed(uint256,bytes32,address,uint256,uint256)
           handler: handleExtraBudgetPaymentProcessed

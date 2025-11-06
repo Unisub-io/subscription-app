@@ -1,5 +1,16 @@
 pragma solidity ^0.8.15;
 
+//    \
+//     \\
+//      \\
+//       >\/7
+//   _.-(6'  \
+//  (=___._/ \
+//       )  \ |
+//      /   / |
+//     /    > /
+//    j    < _\
+
 // UNISUB IO
 
 //
@@ -274,7 +285,9 @@ interface IERC165 {
 contract SubscriptionApp {
     bool initialized;
     address public owner;
+
     address public operator;
+
     uint256 public defaultPlatformFee;
     uint256 public nextOrder;
 
@@ -290,7 +303,8 @@ contract SubscriptionApp {
         uint256 intervalDuration,
         address erc20,
         uint256 merchantDefaultNumberOfOrderIntervals,
-        uint256 trialIntervals
+        uint256 trialIntervals,
+        string passthrough
     );
 
     event OrderAccepted(
@@ -300,7 +314,8 @@ contract SubscriptionApp {
         uint256 startTime,
         uint256 extraBudgetPerInterval,
         uint256 approvedPeriodsRemaining,
-        uint256 trialIntervalsRemaining
+        uint256 trialIntervalsRemaining,
+        string passthrough
     );
 
     event OrderPaidOut(
@@ -309,7 +324,8 @@ contract SubscriptionApp {
         uint256 amount,
         uint256 feeAmount,
         uint256 timestamp,
-        address executor // Merchant or owner address that paid out
+        address executor, // Merchant or owner address that paid out
+        string passthrough
     );
 
     event ExtraBudgetLogged(
@@ -318,7 +334,8 @@ contract SubscriptionApp {
         address customerAddress,
         uint256 extraAmount,
         uint256 pendingPeriods,
-        uint256 index
+        uint256 index,
+        string passthrough
     );
 
     event ExtraBudgetPaymentProcessed(
@@ -350,7 +367,8 @@ contract SubscriptionApp {
         uint256 amount,
         uint256 feeAmount,
         uint256 timestamp,
-        address executor // Merchant or owner address that paid out
+        address executor, // Merchant or owner address that paid out
+        string passthrough
     );
 
     event OrderRenewed(
@@ -359,7 +377,8 @@ contract SubscriptionApp {
         address customerAddress,
         uint256 startTime,
         uint256 approvedPeriodsRemaining,
-        bool orderRenewedNotExtended
+        bool orderRenewedNotExtended,
+        string passthrough
     );
 
     event OrderCancelled(
@@ -382,17 +401,20 @@ contract SubscriptionApp {
 
     event SuccessfulPay(uint256 orderId,
                         bytes32 customerId,
-                        address customerAddress);
+                        address customerAddress,
+                        string passthrough);
 
     event PaymentFailureBytes(bytes someData,
         uint256 orderId,
         bytes32 customerId,
-        address customerAddress);
+        address customerAddress,
+        string passthrough);
 
     event PaymentFailure(string revertString,
         uint256 orderId,
         bytes32 customerId,
-        address customerAddress);
+        address customerAddress,
+        string passthrough);
 
     event SetMerchantSpecificPlatformFee(address merchant, uint256 customPlatformFee, bool activated);
     event SetMerchantSpecificExtraBudgetLockTime(address merchant, uint256 customLockTime);
@@ -401,6 +423,7 @@ contract SubscriptionApp {
     event OwnerWithdrawERC20(address erc20, uint256 value);
     event ChangeOwner(address newOwner);
     event ChangeOperator(address operator);
+    event ChangeMerchantOperator(address merchant, address merchantOperator);
 
     // Structs
 
@@ -440,6 +463,23 @@ contract SubscriptionApp {
         bool refunded;
     }
 
+    // New Struct
+    struct ExtraBudgetArgs {
+        uint256 orderId;
+        bytes32 customerId;
+        uint256 extraAmount;
+        uint256 pendingIntervals;
+        string passthrough;
+    }
+
+    struct ProcessPaymentArgs {
+        uint256 orderId;
+        bytes32 customerId;
+        bool gasSavingMode;
+        uint256 extraBudgetAmount;
+        string passthrough;
+    }
+
     /// @notice order id to order
     mapping(uint256 => Order) public orders;
 
@@ -457,6 +497,9 @@ contract SubscriptionApp {
     mapping(uint256 => PendingExtraBudgetPayment[]) public pendingExtraBudgetPaymentListByOrderAndCustomer;
     uint256 public lockDownPeriodExtraBudgetPayment;
     mapping(address => uint256) public customLockDownPeriodExtraBudgetPaymentMerchants;
+
+    // Operator upgrade
+    mapping(address => address) public merchantOperators;
 
     modifier onlyOwner() {
         require(owner == msg.sender, "Caller is not the owner");
@@ -490,6 +533,20 @@ contract SubscriptionApp {
     function changeOperator(address _operator) public onlyOwner {
         operator = _operator;
         emit ChangeOperator(_operator);
+    }
+
+    /// @dev ChangeMerchantOperator
+    /// @param _merchantOperator The new merchant Operator authorized to process payments
+    function changeMerchantOperatorOnlyOwner(address _merchant, address _merchantOperator) public onlyOwner {
+        merchantOperators[_merchant] = _merchantOperator;
+        emit ChangeMerchantOperator(_merchant, _merchantOperator);
+    }
+
+    /// @dev ChangeMerchantOperator
+    /// @param _merchantOperator The new merchant Operator authorized to process payments
+    function changeMerchantOperator(address _merchantOperator) public {
+        merchantOperators[msg.sender] = _merchantOperator;
+        emit ChangeMerchantOperator(msg.sender, _merchantOperator);
     }
 
     /// @dev ChangeDefaultPlatformFee
@@ -549,6 +606,18 @@ contract SubscriptionApp {
     /// @param _merchantDefaultNumberOfOrderIntervals Default number of intervals to approve
     /// @param _trialIntervals Number of intervals that are free
     function createNewOrder(uint256 _chargePerInterval, uint256 _extraBudgetPerInterval, uint256 _intervalDuration, IERC20 _erc20, uint256 _merchantDefaultNumberOfOrderIntervals, uint256 _trialIntervals) public {
+        createNewOrderWithPassthrough(_chargePerInterval,_extraBudgetPerInterval,_intervalDuration,_erc20,_merchantDefaultNumberOfOrderIntervals,_trialIntervals,"NONE");
+    }
+
+    /// @dev CreateNewOrderWithPassthrough
+    /// @param _chargePerInterval Cost of the order every interval
+    /// @param _extraBudgetPerInterval Every interval, this amount of budget can be spent by the merchant for extra charges.
+    /// @param _intervalDuration The duration of the interval - seconds 9, minutes 8, hourly 7, daily 6, weekly 5, bi-weekly 4, monthly 3, quarter-year 2, bi-yearly 1, yearly 0
+    /// @param _erc20 Address of the payment token
+    /// @param _merchantDefaultNumberOfOrderIntervals Default number of intervals to approve
+    /// @param _trialIntervals Number of intervals that are free
+    /// @param _passthrough The passthrough
+    function createNewOrderWithPassthrough(uint256 _chargePerInterval, uint256 _extraBudgetPerInterval, uint256 _intervalDuration, IERC20 _erc20, uint256 _merchantDefaultNumberOfOrderIntervals, uint256 _trialIntervals, string memory _passthrough) public {
         require(_intervalDuration < 10, "Interval duration between 0 and 9");
         // Supports interface
         bool worked = false;
@@ -577,7 +646,9 @@ contract SubscriptionApp {
                         _intervalDuration,
                         address(_erc20),
                         _merchantDefaultNumberOfOrderIntervals,
-                        _trialIntervals);
+                        _trialIntervals,
+                        _passthrough
+                    );
 
                     nextOrder = nextOrder + 1;
                     worked = true;
@@ -683,10 +754,20 @@ contract SubscriptionApp {
     /// @param _extraBudgetPerInterval Extra Budget that the customer is accepting per cycle
     /// @param _approvedPeriods Number of periods or months accepted
     function customerAcceptOrder(uint256 _orderId, bytes32 _customerId, uint256 _extraBudgetPerInterval, uint256 _approvedPeriods) public {
+        customerAcceptOrderWithPassthrough(_orderId, _customerId, _extraBudgetPerInterval, _approvedPeriods, "NONE");
+    }
+
+    /// @dev CustomerAcceptOrderWithPassthrough and pay
+    /// @param _orderId Order id
+    /// @param _customerId Bytes32 Customer ID
+    /// @param _extraBudgetPerInterval Extra Budget that the customer is accepting per cycle
+    /// @param _approvedPeriods Number of periods or months accepted
+    /// @param _passthrough Passthrough value
+    function customerAcceptOrderWithPassthrough(uint256 _orderId, bytes32 _customerId, uint256 _extraBudgetPerInterval, uint256 _approvedPeriods, string memory _passthrough) public {
         Order storage order = orders[_orderId];
         require(!order.paused, "Cannot process, this order is paused");
 
-        require(customerIdToAddress[_customerId] == address(0), "Can't reuse customer ids");
+        require(customerIdToAddress[_customerId] == address(0), "Can't reuse customer ids"); // TODO - possible we need to reuse customer ids but they will be unique to an order
         require(order.customerOrders[_customerId].firstPaymentMadeTimestamp == 0, "This customer id is already registered on this order");
 
         address customerAddress = msg.sender;
@@ -744,7 +825,8 @@ contract SubscriptionApp {
             _getNow(),
             _extraBudgetPerInterval,
             _approvedPeriods,
-            trialPeriodsRemaining);
+            trialPeriodsRemaining,
+            _passthrough);
     }
 
     /// @dev BatchProcessPayment
@@ -753,6 +835,20 @@ contract SubscriptionApp {
     /// @param _gasSavingMode False will trigger erc20 tokens to go directly to the merchant. True will use gas saving mode to escrow payments for later withdrawal by the merchant
     /// @param _extraAmounts If there will be extra amounts on a subscription charged, the amount that corresponds to previous arrays
     function batchProcessPayment(uint256[] memory _orderIds, bytes32[] memory _customerIds, bool _gasSavingMode, uint256[] memory _extraAmounts) external {
+        string[] memory _passthrough = new string[](_orderIds.length);
+            for (uint256 i = 0; i < _orderIds.length; i++) {
+                _passthrough[i] = "NONE";
+            }
+        batchProcessPaymentWithData(_orderIds,_customerIds,_gasSavingMode,_extraAmounts,_passthrough);
+    }
+    /// @dev BatchProcessPayment
+    /// @param _orderIds Order ids
+    /// @param _customerIds The customers bytes32 id array, it must be the same length as the order id array
+    /// @param _gasSavingMode False will trigger erc20 tokens to go directly to the merchant. True will use gas saving mode to escrow payments for later withdrawal by the merchant
+    /// @param _extraAmounts If there will be extra amounts on a subscription charged, the amount that corresponds to previous arrays
+    /// @param _passthrough String for merchants to include more pass through context about payment
+    function batchProcessPaymentWithData(uint256[] memory _orderIds, bytes32[] memory _customerIds, bool _gasSavingMode, uint256[] memory _extraAmounts, string[] memory _passthrough) public {
+        // Instantiate passthrough
         require(_orderIds.length == _customerIds.length, "The orders and customers must be equal length");
         require(_orderIds.length == _extraAmounts.length, "The orders and extra amounts must be equal length");
 
@@ -760,77 +856,99 @@ contract SubscriptionApp {
             bool success;
             string memory revertReason;
             bytes memory revertData;
-            (success, revertReason, revertData) = _processPayment(_orderIds[i], _customerIds[i], _gasSavingMode, _extraAmounts[i]);
+            ProcessPaymentArgs memory args = ProcessPaymentArgs({
+                orderId: _orderIds[i],
+                customerId: _customerIds[i],
+                gasSavingMode: _gasSavingMode,
+                extraBudgetAmount: _extraAmounts[i],
+                passthrough: _passthrough[i]
+             });
+
+            (success, revertReason, revertData) = _processPayment(args);
             if(success)
             {
-                emit SuccessfulPay(_orderIds[i], _customerIds[i], customerIdToAddress[_customerIds[i]]);
+                emit SuccessfulPay(_orderIds[i], _customerIds[i], customerIdToAddress[_customerIds[i]], _passthrough[i]);
             } else {
                 if(bytes(revertReason).length > 0){
-                    emit PaymentFailure(revertReason, _orderIds[i], _customerIds[i], customerIdToAddress[_customerIds[i]]);
+                    emit PaymentFailure(revertReason, _orderIds[i], _customerIds[i], customerIdToAddress[_customerIds[i]], _passthrough[i]);
                 } else {
-                    emit PaymentFailureBytes(revertData, _orderIds[i], _customerIds[i], customerIdToAddress[_customerIds[i]]);
+                    emit PaymentFailureBytes(revertData, _orderIds[i], _customerIds[i], customerIdToAddress[_customerIds[i]], _passthrough[i]);
                 }
             }
         }
     }
-
-    function _processPayment(uint256 _orderId, bytes32 _customerId, bool _gasSavingMode, uint256 extraBudgetAmount) internal returns (bool success, string memory revertCause, bytes memory revertData) {
-        Order storage order = orders[_orderId];
+        //uint256 _orderId, bytes32 _customerId, bool _gasSavingMode, uint256 _extraBudgetAmount, string memory _passthrough
+    function _processPayment(ProcessPaymentArgs memory args) internal returns (bool success, string memory revertCause, bytes memory revertData) {
+        Order storage order = orders[args.orderId];
+        string memory passthrough = args.passthrough;
 
         //Need to only allow owner, operator, or merchant to process payment
-        require(msg.sender == operator || msg.sender == owner || msg.sender == order.merchant, "Only operator, owner or merchant can process payments");
+        require(msg.sender == operator || msg.sender == owner || msg.sender == order.merchant || msg.sender == merchantOperators[order.merchant], "Only operator, owner, merchant, or merchant operator can process payments");
 
-        require(order.customerOrders[_customerId].firstPaymentMadeTimestamp > 0); // Need to be greater than 0 firstpayment timestamp
+        require(order.customerOrders[args.customerId].firstPaymentMadeTimestamp > 0); // Need to be greater than 0 firstpayment timestamp
 
-        uint256 howManyIntervalsToPay = _howManyIntervalsToPay(order, _customerId);
+        uint256 howManyIntervalsToPay = _howManyIntervalsToPay(order, args.customerId);
+//
+//        if (elapsedIntervals > customerOrder.numberOfIntervalsPaid) {
+//            customerOrder.extraBudgetUsed = 0; // Reset the extra budget when entering a new interval
+//        }
 
-        if(howManyIntervalsToPay > order.customerOrders[_customerId].approvedPeriodsRemaining){
-            howManyIntervalsToPay = order.customerOrders[_customerId].approvedPeriodsRemaining;
+        if(howManyIntervalsToPay > order.customerOrders[args.customerId].approvedPeriodsRemaining){
+            howManyIntervalsToPay = order.customerOrders[args.customerId].approvedPeriodsRemaining;
         }
 
         uint256 howManyIntervalsMinusTrialIntervals = 0;
-        if(howManyIntervalsToPay > order.customerOrders[_customerId].trialIntervalsRemaining){
-            howManyIntervalsMinusTrialIntervals = howManyIntervalsToPay - order.customerOrders[_customerId].trialIntervalsRemaining;
+        if(howManyIntervalsToPay > order.customerOrders[args.customerId].trialIntervalsRemaining){
+            howManyIntervalsMinusTrialIntervals = howManyIntervalsToPay - order.customerOrders[args.customerId].trialIntervalsRemaining;
         } else {
             howManyIntervalsMinusTrialIntervals = 0;
         }
 
-        bool terminated = order.customerOrders[_customerId].terminated;
+        bool terminated = order.customerOrders[args.customerId].terminated;
 
         uint256 howMuchERC20ToSend = howManyIntervalsMinusTrialIntervals * order.chargePerInterval;
         uint256 calculateFee = (howMuchERC20ToSend * platformFee(order.merchant)) / (1000);
 
 
-        if(!_gasSavingMode){
-            try SubscriptionApp(this).payOutMerchantAndFeesInternalMethod(_customerId, howMuchERC20ToSend, calculateFee, order.paused, terminated, order.merchant, order.erc20
+        if(!args.gasSavingMode){
+            try SubscriptionApp(this).payOutMerchantAndFeesInternalMethod(args.customerId, howMuchERC20ToSend, calculateFee, order.paused, terminated, order.merchant, order.erc20
             ) {
-                order.customerOrders[_customerId].numberOfIntervalsPaid = order.customerOrders[_customerId].numberOfIntervalsPaid + howManyIntervalsToPay;
-                order.customerOrders[_customerId].approvedPeriodsRemaining = order.customerOrders[_customerId].approvedPeriodsRemaining - howManyIntervalsToPay;
-                if(order.customerOrders[_customerId].trialIntervalsRemaining >= howManyIntervalsToPay){
-                    order.customerOrders[_customerId].trialIntervalsRemaining = order.customerOrders[_customerId].trialIntervalsRemaining - howManyIntervalsToPay;
+                order.customerOrders[args.customerId].numberOfIntervalsPaid = order.customerOrders[args.customerId].numberOfIntervalsPaid + howManyIntervalsToPay;
+                order.customerOrders[args.customerId].approvedPeriodsRemaining = order.customerOrders[args.customerId].approvedPeriodsRemaining - howManyIntervalsToPay;
+                if(order.customerOrders[args.customerId].trialIntervalsRemaining >= howManyIntervalsToPay){
+                    order.customerOrders[args.customerId].trialIntervalsRemaining = order.customerOrders[args.customerId].trialIntervalsRemaining - howManyIntervalsToPay;
                 } else {
-                    order.customerOrders[_customerId].trialIntervalsRemaining = 0;
+                    order.customerOrders[args.customerId].trialIntervalsRemaining = 0;
                 }
                 if(howMuchERC20ToSend > 0) {
-                    order.customerOrders[_customerId].amountPaidToDate = order.customerOrders[_customerId].amountPaidToDate + howMuchERC20ToSend;
+                    order.customerOrders[args.customerId].amountPaidToDate = order.customerOrders[args.customerId].amountPaidToDate + howMuchERC20ToSend;
 
                     // Update customer histories
-                    customerHistoryTimestamps[_orderId][_customerId].push(_getNow());
-                    customerHistoryAmounts[_orderId][_customerId].push( order.chargePerInterval);
-                    customerHistoryFeePercentages[_orderId][_customerId].push(platformFee(order.merchant));
+                    customerHistoryTimestamps[args.orderId][args.customerId].push(_getNow());
+                    customerHistoryAmounts[args.orderId][args.customerId].push( order.chargePerInterval);
+                    customerHistoryFeePercentages[args.orderId][args.customerId].push(platformFee(order.merchant));
 
                     emit OrderPaidOut(
-                        _orderId,
-                        _customerId,
+                        args.orderId,
+                        args.customerId,
                         howMuchERC20ToSend,
                         calculateFee,
                         _getNow(),
-                        tx.origin
+                        tx.origin,
+                        passthrough
                     );
                 }
                 // First process extra budget payment
-                if(extraBudgetAmount > 0) {
-                    (bool success, string memory revertReason) = processExtraBudgetPayment(_orderId, _customerId, extraBudgetAmount, howManyIntervalsToPay);
+                if(args.extraBudgetAmount > 0) {
+                    ExtraBudgetArgs memory extraArgs = ExtraBudgetArgs({
+                                    orderId: args.orderId,
+                                    customerId: args.customerId,
+                                    extraAmount: args.extraBudgetAmount,
+                                    pendingIntervals: howManyIntervalsToPay,
+                                    passthrough: args.passthrough
+                                });
+
+                    (bool success, string memory revertReason) = processExtraBudgetPayment(extraArgs);
                     if (!success) {
                         return (false, revertReason, "");
                     }
@@ -843,39 +961,48 @@ contract SubscriptionApp {
             }
         } else{
             // Gas saving mode holds on to balances accounting for the merchants and owner
-            try SubscriptionApp(this).payOutGasSavingInternalMethod(_customerId, howMuchERC20ToSend, order.paused, terminated, order.erc20
+            try SubscriptionApp(this).payOutGasSavingInternalMethod(args.customerId, howMuchERC20ToSend, order.paused, terminated, order.erc20
             ) {
-                order.customerOrders[_customerId].numberOfIntervalsPaid = order.customerOrders[_customerId].numberOfIntervalsPaid + howManyIntervalsToPay;
-                order.customerOrders[_customerId].approvedPeriodsRemaining = order.customerOrders[_customerId].approvedPeriodsRemaining - howManyIntervalsToPay;
-                if(order.customerOrders[_customerId].trialIntervalsRemaining >= howManyIntervalsToPay){
-                    order.customerOrders[_customerId].trialIntervalsRemaining = order.customerOrders[_customerId].trialIntervalsRemaining - howManyIntervalsToPay;
+                order.customerOrders[args.customerId].numberOfIntervalsPaid = order.customerOrders[args.customerId].numberOfIntervalsPaid + howManyIntervalsToPay;
+                order.customerOrders[args.customerId].approvedPeriodsRemaining = order.customerOrders[args.customerId].approvedPeriodsRemaining - howManyIntervalsToPay;
+                if(order.customerOrders[args.customerId].trialIntervalsRemaining >= howManyIntervalsToPay){
+                    order.customerOrders[args.customerId].trialIntervalsRemaining = order.customerOrders[args.customerId].trialIntervalsRemaining - howManyIntervalsToPay;
                 } else {
-                    order.customerOrders[_customerId].trialIntervalsRemaining = 0;
+                    order.customerOrders[args.customerId].trialIntervalsRemaining = 0;
                 }
                 if(howMuchERC20ToSend > 0) {
-                    order.customerOrders[_customerId].amountPaidToDate = order.customerOrders[_customerId].amountPaidToDate + howMuchERC20ToSend;
+                    order.customerOrders[args.customerId].amountPaidToDate = order.customerOrders[args.customerId].amountPaidToDate + howMuchERC20ToSend;
 
                     // Update customer histories
-                    customerHistoryTimestamps[_orderId][_customerId].push(_getNow());
-                    customerHistoryAmounts[_orderId][_customerId].push( order.chargePerInterval);
-                    customerHistoryFeePercentages[_orderId][_customerId].push(platformFee(order.merchant));
+                    customerHistoryTimestamps[args.orderId][args.customerId].push(_getNow());
+                    customerHistoryAmounts[args.orderId][args.customerId].push( order.chargePerInterval);
+                    customerHistoryFeePercentages[args.orderId][args.customerId].push(platformFee(order.merchant));
 
                     // Update balance -- this is the different part of code
                     pendingOwnerWithdrawalAmountByToken[order.erc20] += calculateFee;
                     pendingMerchantWithdrawalAmountByMerchantAndToken[order.merchant][order.erc20] +=  (howMuchERC20ToSend - calculateFee);
 
                     emit OrderPaidOutGasSavingMode(
-                        _orderId,
-                        _customerId,
+                        args.orderId,
+                        args.customerId,
                         howMuchERC20ToSend,
                         calculateFee,
                         _getNow(),
-                        tx.origin
+                        tx.origin,
+                        passthrough
                     );
                 }
                 // First process extra budget payment
-                if(extraBudgetAmount > 0) {
-                    (bool success, string memory revertReason) = processExtraBudgetPayment(_orderId, _customerId, extraBudgetAmount, howManyIntervalsToPay);
+                if (args.extraBudgetAmount > 0) {
+                    ExtraBudgetArgs memory extraArgs = ExtraBudgetArgs({
+                                    orderId: args.orderId,
+                                    customerId: args.customerId,
+                                    extraAmount: args.extraBudgetAmount,
+                                    pendingIntervals: howManyIntervalsToPay,
+                                    passthrough: args.passthrough
+                    });
+
+                    (bool success, string memory revertReason) = processExtraBudgetPayment(extraArgs);
                     if (!success) {
                         return (false, revertReason, "");
                     }
@@ -982,52 +1109,66 @@ contract SubscriptionApp {
         return elapsedCycles - (numberOfIntervalsPaid - 1);
     }
 
-    function processExtraBudgetPayment(
-        uint256 _orderId,
-        bytes32 _customerId,
-        uint256 _extraAmount,
-        uint256 _pendingIntervals
-    ) internal returns (bool success, string memory revertReason) {
-        Order storage order = orders[_orderId];
-        CustomerOrder storage customerOrder = order.customerOrders[_customerId];
+  function processExtraBudgetPayment(
+    ExtraBudgetArgs memory args
+) internal returns (bool success, string memory revertReason) {
+    Order storage order = orders[args.orderId];
+    CustomerOrder storage customerOrder = order.customerOrders[args.customerId];
 
-        uint256 availableBudget = ((uint256(1) + _pendingIntervals) * customerOrder.extraBudgetPerInterval) - customerOrder.extraBudgetUsed;
-        if (_extraAmount > availableBudget) {
-            return (false, "Exceeds extra budget");
-        }
+    uint256 availableBudget = ((1 + args.pendingIntervals) * customerOrder.extraBudgetPerInterval)
+        - customerOrder.extraBudgetUsed;
 
-        if ((availableBudget - _extraAmount) > customerOrder.extraBudgetPerInterval) {
-            customerOrder.extraBudgetUsed = 0;
-        } else {
-            // customerOrder.extraBudgetUsed = customerOrder.extraBudgetPerInterval - remainingBudget;
-            customerOrder.extraBudgetUsed = customerOrder.extraBudgetPerInterval - (availableBudget - _extraAmount);
-        }
-
-        customerOrder.extraBudgetLifetime += _extraAmount;
-
-        PendingExtraBudgetPayment memory newPayment = PendingExtraBudgetPayment({
-        customerId: _customerId,
-        customerAddress: customerIdToAddress[_customerId],
-        timestamp: _getNow(),
-        extraAmount: _extraAmount,
-        processed: false,
-        refunded: false
-        });
-
-        pendingExtraBudgetPaymentListByOrderAndCustomer[_orderId].push(newPayment);
-        uint256 len = pendingExtraBudgetPaymentListByOrderAndCustomer[_orderId].length;
-
-        bool successExtraPayment = IERC20(order.erc20).transferFrom(customerIdToAddress[_customerId], address(this), _extraAmount);
-        if (!successExtraPayment) {
-            return (false, "Fee transfer has failed");
-        }
-
-        emit ExtraBudgetLogged(_orderId, _customerId, customerIdToAddress[_customerId], _extraAmount, _pendingIntervals, len - 1);
-
-        return (true, "");
+    if (args.extraAmount > availableBudget) {
+        return (false, "Exceeds extra budget");
     }
 
+    if ((availableBudget - args.extraAmount) > customerOrder.extraBudgetPerInterval) {
+        // Still enough left for the next period, reset used
+        customerOrder.extraBudgetUsed = 0;
+    } else {
+        // Track how much budget has been used this interval
+        customerOrder.extraBudgetUsed = customerOrder.extraBudgetPerInterval - (availableBudget - args.extraAmount);
+    }
+
+    customerOrder.extraBudgetLifetime += args.extraAmount;
+
+    PendingExtraBudgetPayment memory newPayment = PendingExtraBudgetPayment({
+        customerId: args.customerId,
+        customerAddress: customerIdToAddress[args.customerId],
+        timestamp: _getNow(),
+        extraAmount: args.extraAmount,
+        processed: false,
+        refunded: false
+    });
+
+    pendingExtraBudgetPaymentListByOrderAndCustomer[args.orderId].push(newPayment);
+    uint256 len = pendingExtraBudgetPaymentListByOrderAndCustomer[args.orderId].length;
+
+    bool successExtraPayment = IERC20(order.erc20).transferFrom(
+        customerIdToAddress[args.customerId],
+        address(this),
+        args.extraAmount
+    );
+    if (!successExtraPayment) {
+        return (false, "Fee transfer has failed");
+    }
+
+    emit ExtraBudgetLogged(
+        args.orderId,
+        args.customerId,
+        customerIdToAddress[args.customerId],
+        args.extraAmount,
+        args.pendingIntervals,
+        len - 1,
+        args.passthrough
+    );
+
+    return (true, "");
+}
+
+
     // Function to process pending extra budget payments for a specific order, with an option to limit the range of payments processed
+
     // Use 0 as endPaymentIndex to process everything after startPaymentIndex
     /// @dev processPendingPayments
     /// @param orderId Order id of the order to process extra pending payments for
@@ -1087,6 +1228,7 @@ contract SubscriptionApp {
 
         for (uint256 i = startRefundIndex; i < upperBound; i++) {
             PendingExtraBudgetPayment storage payment = pendingExtraBudgetPaymentListByOrderAndCustomer[orderId][i];
+
             if (!payment.processed) { // Payment must not yet be processed, so has not been paid or refunded
                 payment.processed = true;
                 payment.refunded = true;
@@ -1103,6 +1245,15 @@ contract SubscriptionApp {
     /// @param _extraBudgetPerInterval Extra budget allowed per interval
     /// @param _approvedPeriods If renewing , it sets this amount, if extending it adds this amount
     function customerRenewOrder(uint256 _orderId, bytes32 _customerId, uint256 _extraBudgetPerInterval, uint256 _approvedPeriods) external {
+        customerRenewOrderWithPassthrough(_orderId, _customerId, _extraBudgetPerInterval, _approvedPeriods, "NONE");
+    }
+    /// @dev CustomerRenewOrder
+    /// @param _orderId Order Id
+    /// @param _customerId Customer id
+    /// @param _extraBudgetPerInterval Extra budget allowed per interval
+    /// @param _approvedPeriods If renewing , it sets this amount, if extending it adds this amount
+    /// @param _passthrough Passthrough Information
+    function customerRenewOrderWithPassthrough(uint256 _orderId, bytes32 _customerId, uint256 _extraBudgetPerInterval, uint256 _approvedPeriods, string memory _passthrough) public {
         Order storage order = orders[_orderId];
 
         require(msg.sender == customerIdToAddress[_customerId], "Can only renew your own orders");
@@ -1145,7 +1296,8 @@ contract SubscriptionApp {
                 msg.sender,
                 _getNow(),
                 _approvedPeriods,
-                true);
+                true,
+                _passthrough);
         } else {
             customerOrder.approvedPeriodsRemaining = customerOrder.approvedPeriodsRemaining + _approvedPeriods;
             customerOrder.extraBudgetUsed = 0;
@@ -1157,7 +1309,8 @@ contract SubscriptionApp {
                 msg.sender,
                 customerOrder.firstPaymentMadeTimestamp,
                 _approvedPeriods,
-                false);
+                false,
+                _passthrough);
         }
     }
 
